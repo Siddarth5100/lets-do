@@ -4,6 +4,7 @@ import {
   findOverlappingTasks,
   findSameDayDuplicateTasks,
   formatTaskTiming,
+  getDailyScheduleTotals,
   getDailyTaskSchedule,
   normalizeTaskName,
 } from './taskValidation'
@@ -117,6 +118,21 @@ describe('daily task schedule', () => {
   it('returns no available ranges when the entire day is allocated', () => {
     const fullDayTask = { ...baseTask, date: '2026-10-22', startTime: '00:00', plannedMinutes: 1440 }
     expect(getDailyTaskSchedule('2026-10-22', [fullDayTask]).availableRanges).toEqual([])
+  })
+
+  it('calculates allocated and available totals without double-counting overlaps', () => {
+    const firstTask = { ...baseTask, id: 'first', date: '2026-10-22', startTime: '09:00', plannedMinutes: 120 }
+    const overlappingTask = { ...baseTask, id: 'overlapping', date: '2026-10-22', startTime: '10:00', plannedMinutes: 120 }
+    const schedule = getDailyTaskSchedule('2026-10-22', [firstTask, overlappingTask])
+
+    expect(getDailyScheduleTotals(schedule)).toEqual({ allocatedMinutes: 180, availableMinutes: 1260 })
+  })
+
+  it('reports an entirely empty day as available', () => {
+    expect(getDailyScheduleTotals(getDailyTaskSchedule('2026-10-22', []))).toEqual({
+      allocatedMinutes: 0,
+      availableMinutes: 1440,
+    })
   })
 })
 

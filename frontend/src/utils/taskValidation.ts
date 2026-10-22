@@ -18,6 +18,11 @@ export interface DailyTaskSchedule {
   availableRanges: DailyTimeRange[]
 }
 
+export interface DailyScheduleTotals {
+  allocatedMinutes: number
+  availableMinutes: number
+}
+
 export function normalizeTaskName(taskName: string): string {
   return taskName.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
 }
@@ -83,6 +88,17 @@ export function getDailyTaskSchedule(dateKey: string, tasks: Task[], excludedTas
 
 export function formatDailyTimeRange(range: DailyTimeRange): string {
   return `${formatDayMinute(range.startMinutes)}–${formatDayMinute(range.endMinutes)}`
+}
+
+export function getDailyScheduleTotals(schedule: DailyTaskSchedule): DailyScheduleTotals {
+  const availableMinutes = schedule.availableRanges.reduce(
+    (totalMinutes, range) => totalMinutes + range.endMinutes - range.startMinutes,
+    0,
+  )
+  return {
+    allocatedMinutes: MINUTES_PER_DAY - availableMinutes,
+    availableMinutes,
+  }
 }
 
 export function formatTaskTiming(task: Pick<Task, 'date' | 'startTime' | 'plannedMinutes'>): string {

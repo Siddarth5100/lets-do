@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { PlannerState, Task } from '../types/planner'
-import { defaultPlannerState, loadPlannerState, parsePlannerState, savePlannerState, STORAGE_KEY } from './storage'
+import {
+  defaultPlannerState,
+  loadNavigationState,
+  loadPlannerState,
+  NAVIGATION_STORAGE_KEY,
+  parseNavigationState,
+  parsePlannerState,
+  saveNavigationState,
+  savePlannerState,
+  STORAGE_KEY,
+} from './storage'
 
 const task: Task = {
   id: 'task-1',
@@ -72,5 +82,41 @@ describe('planner localStorage', () => {
   it('reports quota or privacy-mode write failures', () => {
     const storage = { setItem: vi.fn(() => { throw new Error('quota') }) }
     expect(savePlannerState(storage, state)).toBe(false)
+  })
+})
+
+describe('navigation sessionStorage', () => {
+  const currentDateKey = '2026-10-22'
+
+  it('round-trips the active view and selected date using a separate key', () => {
+    const navigationState = { activeView: 'review' as const, selectedDate: '2026-10-20' }
+    const storage = { setItem: vi.fn() }
+
+    expect(saveNavigationState(storage, navigationState)).toBe(true)
+    expect(storage.setItem).toHaveBeenCalledWith(NAVIGATION_STORAGE_KEY, JSON.stringify(navigationState))
+    expect(parseNavigationState(JSON.stringify(navigationState), currentDateKey)).toEqual(navigationState)
+  })
+
+  it('falls back independently for invalid views and dates', () => {
+    expect(parseNavigationState(JSON.stringify({ activeView: 'outdated', selectedDate: '2026-10-20' }), currentDateKey)).toEqual({
+      activeView: 'today',
+      selectedDate: '2026-10-20',
+    })
+    expect(parseNavigationState(JSON.stringify({ activeView: 'settings', selectedDate: 'invalid' }), currentDateKey)).toEqual({
+      activeView: 'settings',
+      selectedDate: currentDateKey,
+    })
+  })
+
+  it('falls back safely for missing, malformed, or blocked navigation data', () => {
+    expect(parseNavigationState(null, currentDateKey)).toEqual({ activeView: 'today', selectedDate: currentDateKey })
+    expect(parseNavigationState('{oops', currentDateKey)).toEqual({ activeView: 'today', selectedDate: currentDateKey })
+    const blockedStorage = { getItem: vi.fn(() => { throw new Error('blocked') }) }
+    expect(loadNavigationState(blockedStorage, currentDateKey)).toEqual({ activeView: 'today', selectedDate: currentDateKey })
+  })
+
+  it('reports navigation write failures without throwing', () => {
+    const blockedStorage = { setItem: vi.fn(() => { throw new Error('quota') }) }
+    expect(saveNavigationState(blockedStorage, { activeView: 'calendar', selectedDate: currentDateKey })).toBe(false)
   })
 })

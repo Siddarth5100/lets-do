@@ -20,7 +20,7 @@ interface TodayViewProps {
   onComplete: (task: Task) => void
   onReopen: (task: Task) => void
   onSetPartialProgress: (task: Task, minutes: number) => void
-  onReview: () => void
+  onOpenReview: () => void
 }
 
 export function TodayView(props: TodayViewProps) {
@@ -34,7 +34,7 @@ export function TodayView(props: TodayViewProps) {
     <div className="space-y-7">
       <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
         <div><div className="flex items-center gap-2"><p className="text-sm font-bold uppercase tracking-[0.18em] text-[var(--accent-strong)]">{formatLongDate(props.dateKey)}</p><button type="button" className="icon-button text-[var(--accent-strong)]" onClick={props.onOpenCalendar} aria-label="Open calendar"><Icon name="calendar" className="size-5" /></button></div><h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950 sm:text-5xl">Make today count.</h1><p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-500">{weekdaySlogans[selectedDate.getDay()]}</p></div>
-        <div className="flex gap-2"><button type="button" className="button-secondary" onClick={props.onReview}>Review plan</button><button type="button" className="button-primary hidden sm:flex" onClick={props.onAdd}><Icon name="plus" className="size-4" />Add task</button></div>
+        <div className="flex gap-2"><button type="button" className="button-secondary" onClick={props.onOpenReview}>Review plan</button><button type="button" className="button-primary hidden sm:flex" onClick={props.onAdd}><Icon name="plus" className="size-4" />Add task</button></div>
       </header>
 
       <DashboardStats tasks={props.tasks} availableHours={props.availableHours} activityDates={props.activityDates} completionEvents={props.completionEvents} />

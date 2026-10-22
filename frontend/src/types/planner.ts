@@ -53,4 +53,4 @@ export interface PlannerState {
   settings: PlannerSettings
 }
 
-export type ViewName = 'today' | 'calendar' | 'settings'
+export type ViewName = 'today' | 'calendar' | 'review' | 'settings'

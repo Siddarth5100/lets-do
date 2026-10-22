@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { CalendarView } from './components/calendar/CalendarView'
 import { TodayView } from './components/dashboard/TodayView'
 import { BottomNavigation, DesktopNavigation } from './components/layout/Navigation'
+import { ReviewPlanView } from './components/review/ReviewPlanView'
 import { SettingsView } from './components/settings/SettingsView'
 import { TaskForm } from './components/tasks/TaskForm'
 import { Modal } from './components/ui/Modal'
@@ -11,6 +12,7 @@ import { defaultTaskCategories } from './data/categories'
 import { usePlanner } from './hooks/usePlanner'
 import type { Task, TaskDraft, ViewName } from './types/planner'
 import { getCurrentDate, toLocalDateKey } from './utils/dates'
+import { loadNavigationState, saveNavigationState } from './utils/storage'
 import { findOverlappingTasks, findSameDayDuplicateTasks, formatTaskTiming } from './utils/taskValidation'
 
 interface PendingTaskSave {
@@ -24,7 +26,11 @@ export default function App() {
   const planner = usePlanner()
   const [currentDate] = useState(getCurrentDate)
   const today = toLocalDateKey(currentDate)
-  const [activeView, setActiveView] = useState<ViewName>('today')
+  const [navigationState, setNavigationState] = useState(() => {
+    if (typeof window === 'undefined') return { activeView: 'today' as ViewName, selectedDate: today }
+    return loadNavigationState(window.sessionStorage, today)
+  })
+  const { activeView, selectedDate } = navigationState
   const [formDate, setFormDate] = useState(today)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [formOpen, setFormOpen] = useState(false)
@@ -41,6 +47,18 @@ export default function App() {
     '--page': theme.page,
     '--glow': theme.glow,
   } as CSSProperties
+
+  useEffect(() => {
+    saveNavigationState(window.sessionStorage, navigationState)
+  }, [navigationState])
+
+  const setActiveView = (activeView: ViewName) => {
+    setNavigationState((current) => ({ ...current, activeView }))
+  }
+
+  const setSelectedDate = (selectedDate: string) => {
+    setNavigationState((current) => ({ ...current, selectedDate }))
+  }
 
   const openAdd = (date = today) => {
     setFormDate(date)
@@ -73,7 +91,8 @@ export default function App() {
     persistTask(draft, taskId)
   }
 
-  const reviewPlan = () => {
+  const confirmReview = () => {
+    if (selectedDate !== toLocalDateKey(getCurrentDate())) return
     planner.reviewPlan()
     setReviewMessage(true)
     window.setTimeout(() => setReviewMessage(false), 2500)
@@ -107,9 +126,10 @@ export default function App() {
         <main className="min-w-0 flex-1 px-4 pb-28 pt-7 sm:px-7 lg:px-10 lg:pb-12 lg:pt-10 xl:px-14">
           <div className="mx-auto max-w-7xl">
             {planner.storageError && <p className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700" role="alert">Changes could not be saved to this browser. Check your storage settings or available space.</p>}
-            {activeView === 'today' && <TodayView dateKey={today} tasks={todayTasks} availableHours={planner.state.settings.availableHours} activityDates={planner.state.activityDates} completionEvents={planner.state.completionEvents} onAdd={() => openAdd()} onOpenCalendar={() => setActiveView('calendar')} onReview={reviewPlan} {...taskCallbacks} />}
+            {activeView === 'today' && <TodayView dateKey={today} tasks={todayTasks} availableHours={planner.state.settings.availableHours} activityDates={planner.state.activityDates} completionEvents={planner.state.completionEvents} onAdd={() => openAdd()} onOpenCalendar={() => setActiveView('calendar')} onOpenReview={() => setActiveView('review')} {...taskCallbacks} />}
             {activeView === 'calendar' && <CalendarView initialDate={today} tasks={planner.state.tasks} onAdd={openAdd} onBackToToday={() => setActiveView('today')} {...taskCallbacks} />}
-            {activeView === 'settings' && <SettingsView settings={planner.state.settings} automaticThemeId={automaticTheme.id} onSave={planner.updateSettings} onReview={reviewPlan} />}
+            {activeView === 'review' && <ReviewPlanView selectedDate={selectedDate} today={today} tasks={planner.state.tasks} onSelectDate={setSelectedDate} onBackToToday={() => setActiveView('today')} onConfirmReview={confirmReview} {...taskCallbacks} />}
+            {activeView === 'settings' && <SettingsView settings={planner.state.settings} automaticThemeId={automaticTheme.id} onSave={planner.updateSettings} onOpenReview={() => setActiveView('review')} />}
           </div>
         </main>
         <BottomNavigation activeView={activeView} onNavigate={setActiveView} onAdd={() => openAdd()} />

@@ -1,7 +1,14 @@
-import type { CompletionEvent, PlannerState, Task } from '../types/planner'
+import type { CompletionEvent, PlannerState, Task, ViewName } from '../types/planner'
+import { fromLocalDateKey } from './dates'
 import { getCompletionState } from './taskMetrics'
 
 export const STORAGE_KEY = 'lets-do.planner.v1'
+export const NAVIGATION_STORAGE_KEY = 'lets-do.navigation.v1'
+
+export interface NavigationState {
+  activeView: ViewName
+  selectedDate: string
+}
 
 export const defaultPlannerState: PlannerState = {
   version: 2,
@@ -126,4 +133,43 @@ export function savePlannerState(storage: Pick<Storage, 'setItem'>, state: Plann
   } catch {
     return false
   }
+}
+
+export function parseNavigationState(serializedState: string | null, currentDateKey: string): NavigationState {
+  const defaultNavigationState: NavigationState = { activeView: 'today', selectedDate: currentDateKey }
+  if (!serializedState) return defaultNavigationState
+
+  try {
+    const parsed: unknown = JSON.parse(serializedState)
+    if (!isRecord(parsed)) return defaultNavigationState
+    return {
+      activeView: isViewName(parsed.activeView) ? parsed.activeView : 'today',
+      selectedDate: typeof parsed.selectedDate === 'string' && fromLocalDateKey(parsed.selectedDate)
+        ? parsed.selectedDate
+        : currentDateKey,
+    }
+  } catch {
+    return defaultNavigationState
+  }
+}
+
+export function loadNavigationState(storage: Pick<Storage, 'getItem'>, currentDateKey: string): NavigationState {
+  try {
+    return parseNavigationState(storage.getItem(NAVIGATION_STORAGE_KEY), currentDateKey)
+  } catch {
+    return { activeView: 'today', selectedDate: currentDateKey }
+  }
+}
+
+export function saveNavigationState(storage: Pick<Storage, 'setItem'>, state: NavigationState): boolean {
+  try {
+    storage.setItem(NAVIGATION_STORAGE_KEY, JSON.stringify(state))
+    return true
+  } catch {
+    return false
+  }
+}
+
+function isViewName(value: unknown): value is ViewName {
+  return value === 'today' || value === 'calendar' || value === 'review' || value === 'settings'
 }
