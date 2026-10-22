@@ -1,6 +1,7 @@
 import type { Task, TaskDraft } from '../types/planner'
 import { fromLocalDateKey } from './dates'
 import { getCompletionState } from './taskMetrics'
+import { parseTimeToMinutes } from './taskTime'
 
 export function normalizeTaskName(taskName: string): string {
   return taskName.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
@@ -29,11 +30,10 @@ export function findOverlappingActiveTasks(draft: TaskDraft, tasks: Task[], excl
 
 function getTaskInterval(dateKey: string, startTime: string, plannedMinutes: number): { start: number; end: number } | null {
   const date = fromLocalDateKey(dateKey)
-  const timeMatch = /^(\d{2}):(\d{2})$/.exec(startTime)
-  if (!date || !timeMatch || plannedMinutes <= 0) return null
-  const hours = Number(timeMatch[1])
-  const minutes = Number(timeMatch[2])
-  if (hours > 23 || minutes > 59) return null
+  const startMinutes = parseTimeToMinutes(startTime)
+  if (!date || startMinutes === null || plannedMinutes <= 0) return null
+  const hours = Math.floor(startMinutes / 60)
+  const minutes = startMinutes % 60
   date.setHours(hours, minutes, 0, 0)
   const start = date.getTime()
   return { start, end: start + plannedMinutes * 60_000 }

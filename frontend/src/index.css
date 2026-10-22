@@ -101,17 +101,8 @@ select:focus-visible {
     @apply mt-0.5 text-xs leading-relaxed text-slate-500;
   }
 
-  .duration-control {
-    @apply flex min-h-12 items-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,.04)] transition focus-within:border-[var(--accent)] focus-within:ring-4 focus-within:ring-[var(--accent-soft)];
-  }
-
-  .duration-control input,
-  .duration-control select {
-    @apply min-w-0 flex-1 bg-transparent px-3 py-3 text-center outline-none;
-  }
-
-  .duration-control span {
-    @apply pr-3 text-xs font-bold text-slate-400;
+  .time-segment-input {
+    @apply min-h-12 min-w-0 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-center font-bold tabular-nums text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,.04)] outline-none transition hover:border-slate-300 focus:border-[var(--accent)] focus:ring-4 focus:ring-[var(--accent-soft)];
   }
 
   .toggle-row {
