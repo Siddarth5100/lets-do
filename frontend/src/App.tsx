@@ -11,13 +11,13 @@ import { defaultTaskCategories } from './data/categories'
 import { usePlanner } from './hooks/usePlanner'
 import type { Task, TaskDraft, ViewName } from './types/planner'
 import { getCurrentDate, toLocalDateKey } from './utils/dates'
-import { findOverlappingActiveTasks, findSameDayDuplicateTasks } from './utils/taskValidation'
+import { findOverlappingTasks, findSameDayDuplicateTasks, formatTaskTiming } from './utils/taskValidation'
 
 interface PendingTaskSave {
   draft: TaskDraft
   taskId: string | null
   duplicateNames: string[]
-  overlappingNames: string[]
+  overlappingTasks: Task[]
 }
 
 export default function App() {
@@ -65,9 +65,9 @@ export default function App() {
   const saveTask = (draft: TaskDraft) => {
     const taskId = editingTask?.id ?? null
     const duplicateNames = findSameDayDuplicateTasks(draft, planner.state.tasks, taskId ?? undefined).map((task) => task.title)
-    const overlappingNames = findOverlappingActiveTasks(draft, planner.state.tasks, taskId ?? undefined).map((task) => task.title)
-    if (duplicateNames.length || overlappingNames.length) {
-      setPendingTaskSave({ draft, taskId, duplicateNames, overlappingNames })
+    const overlappingTasks = findOverlappingTasks(draft, planner.state.tasks, taskId ?? undefined)
+    if (duplicateNames.length || overlappingTasks.length) {
+      setPendingTaskSave({ draft, taskId, duplicateNames, overlappingTasks })
       return
     }
     persistTask(draft, taskId)
@@ -80,7 +80,7 @@ export default function App() {
   }
 
   const requestTaskReopen = (task: Task) => {
-    const overlappingTasks = findOverlappingActiveTasks({ ...task, actualCompletedMinutes: 0 }, planner.state.tasks, task.id)
+    const overlappingTasks = findOverlappingTasks({ ...task, actualCompletedMinutes: 0 }, planner.state.tasks, task.id)
     if (overlappingTasks.length > 0) {
       setPendingReopenTask(task)
       return
@@ -115,15 +115,15 @@ export default function App() {
         <BottomNavigation activeView={activeView} onNavigate={setActiveView} onAdd={() => openAdd()} />
       </div>
 
-      {formOpen && <Modal title={editingTask ? 'Edit task' : 'Add a task'} onClose={() => setFormOpen(false)}><TaskForm task={editingTask ?? undefined} defaultDate={formDate} categories={availableCategories} onCreateCategory={planner.addCustomCategory} onSave={saveTask} onCancel={() => setFormOpen(false)} /></Modal>}
-      {pendingTaskSave && <Modal title="Review scheduling warnings" onClose={() => setPendingTaskSave(null)}><div className="space-y-5 p-6 sm:p-7"><p className="text-slate-600">You can still save this task, but please review the following first.</p>{pendingTaskSave.duplicateNames.length > 0 && <WarningList title="Duplicate task name" description="A task with the same normalized name already exists on this date." names={pendingTaskSave.duplicateNames} />}{pendingTaskSave.overlappingNames.length > 0 && <WarningList title="Schedule overlap" description="This time overlaps with active tasks." names={pendingTaskSave.overlappingNames} />}<div className="flex justify-end gap-3 border-t border-slate-100 pt-5"><button type="button" className="button-secondary" onClick={() => setPendingTaskSave(null)}>Go back</button><button type="button" className="button-primary" onClick={() => persistTask(pendingTaskSave.draft, pendingTaskSave.taskId)}>Save anyway</button></div></div></Modal>}
-      {pendingReopenTask && <Modal title="Review schedule overlap" onClose={() => setPendingReopenTask(null)}><div className="space-y-5 p-6 sm:p-7"><p className="text-slate-600">Reopening this task makes it active again and overlaps with the following active tasks.</p><WarningList title="Schedule overlap" description="You can reopen it anyway or leave it completed." names={findOverlappingActiveTasks({ ...pendingReopenTask, actualCompletedMinutes: 0 }, planner.state.tasks, pendingReopenTask.id).map((task) => task.title)} /><div className="flex justify-end gap-3 border-t border-slate-100 pt-5"><button type="button" className="button-secondary" onClick={() => setPendingReopenTask(null)}>Keep completed</button><button type="button" className="button-primary" onClick={() => { planner.reopenTask(pendingReopenTask.id); setPendingReopenTask(null) }}>Reopen anyway</button></div></div></Modal>}
+      {formOpen && <Modal title={editingTask ? 'Edit task' : 'Add a task'} onClose={() => setFormOpen(false)}><TaskForm task={editingTask ?? undefined} defaultDate={formDate} tasks={planner.state.tasks} categories={availableCategories} onCreateCategory={planner.addCustomCategory} onSave={saveTask} onCancel={() => setFormOpen(false)} /></Modal>}
+      {pendingTaskSave && <Modal title="Review scheduling warnings" onClose={() => setPendingTaskSave(null)}><div className="space-y-5 p-6 sm:p-7"><p className="text-slate-600">You can still save this task, but please review the following first.</p>{pendingTaskSave.duplicateNames.length > 0 && <WarningList title="Duplicate task name" description="A task with the same normalized name already exists on this date." items={pendingTaskSave.duplicateNames} />}{pendingTaskSave.overlappingTasks.length > 0 && <WarningList title="Schedule overlap" description="This time overlaps with scheduled tasks." items={pendingTaskSave.overlappingTasks.map((task) => `${task.title} — ${formatTaskTiming(task)}`)} />}<div className="flex justify-end gap-3 border-t border-slate-100 pt-5"><button type="button" className="button-secondary" onClick={() => setPendingTaskSave(null)}>Go back</button><button type="button" className="button-primary" onClick={() => persistTask(pendingTaskSave.draft, pendingTaskSave.taskId)}>Save anyway</button></div></div></Modal>}
+      {pendingReopenTask && <Modal title="Review schedule overlap" onClose={() => setPendingReopenTask(null)}><div className="space-y-5 p-6 sm:p-7"><p className="text-slate-600">Reopening this task overlaps with the following scheduled tasks.</p><WarningList title="Schedule overlap" description="You can reopen it anyway or leave it completed." items={findOverlappingTasks({ ...pendingReopenTask, actualCompletedMinutes: 0 }, planner.state.tasks, pendingReopenTask.id).map((task) => `${task.title} — ${formatTaskTiming(task)}`)} /><div className="flex justify-end gap-3 border-t border-slate-100 pt-5"><button type="button" className="button-secondary" onClick={() => setPendingReopenTask(null)}>Keep completed</button><button type="button" className="button-primary" onClick={() => { planner.reopenTask(pendingReopenTask.id); setPendingReopenTask(null) }}>Reopen anyway</button></div></div></Modal>}
       {deletingTask && <Modal title="Delete task?" onClose={() => setDeletingTask(null)}><div className="p-6 sm:p-7"><p className="text-slate-600">“{deletingTask.title}” will be removed from this browser. Its completion event will be removed and the completion streak recalculated. Genuine planning activity history will remain.</p><div className="mt-6 flex justify-end gap-3"><button type="button" className="button-secondary" onClick={() => setDeletingTask(null)}>Keep task</button><button type="button" className="rounded-xl bg-red-600 px-4 py-2.5 font-bold text-white hover:bg-red-700" onClick={() => { planner.deleteTask(deletingTask.id); setDeletingTask(null) }}>Delete</button></div></div></Modal>}
       {reviewMessage && <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full bg-slate-900 px-5 py-3 text-sm font-bold text-white shadow-xl lg:bottom-8" role="status">Plan reviewed — activity recorded.</div>}
     </div>
   )
 }
 
-function WarningList({ title, description, names }: { title: string; description: string; names: string[] }) {
-  return <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4"><h3 className="font-black text-amber-900">{title}</h3><p className="mt-1 text-sm text-amber-800">{description}</p><ul className="mt-3 list-disc space-y-1 pl-5 text-sm font-semibold text-amber-950">{[...new Set(names)].map((name) => <li key={name}>{name}</li>)}</ul></section>
+function WarningList({ title, description, items }: { title: string; description: string; items: string[] }) {
+  return <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4"><h3 className="font-black text-amber-900">{title}</h3><p className="mt-1 text-sm text-amber-800">{description}</p><ul className="mt-3 list-disc space-y-1 pl-5 text-sm font-semibold text-amber-950">{[...new Set(items)].map((item) => <li key={item}>{item}</li>)}</ul></section>
 }

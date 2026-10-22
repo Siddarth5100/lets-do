@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { Task, TaskDraft } from '../types/planner'
-import { findOverlappingActiveTasks, findSameDayDuplicateTasks, normalizeTaskName } from './taskValidation'
+import {
+  findOverlappingTasks,
+  findSameDayDuplicateTasks,
+  formatTaskTiming,
+  getDailyTaskSchedule,
+  normalizeTaskName,
+} from './taskValidation'
 
 const baseTask: Task = {
   id: 'existing-task',
@@ -48,21 +54,75 @@ describe('duplicate task names', () => {
   })
 })
 
-describe('active task overlap detection', () => {
+describe('task overlap detection', () => {
   it('detects intersecting intervals but allows adjacent tasks', () => {
-    expect(findOverlappingActiveTasks(createDraft({ startTime: '09:30' }), [baseTask])).toEqual([baseTask])
-    expect(findOverlappingActiveTasks(createDraft({ startTime: '10:00' }), [baseTask])).toEqual([])
+    expect(findOverlappingTasks(createDraft({ startTime: '09:30' }), [baseTask])).toEqual([baseTask])
+    expect(findOverlappingTasks(createDraft({ startTime: '10:00' }), [baseTask])).toEqual([])
   })
 
   it('detects overlaps that cross midnight', () => {
     const lateTask = { ...baseTask, startTime: '23:30', plannedMinutes: 90 }
     const afterMidnight = createDraft({ date: '2026-10-22', startTime: '00:30' })
-    expect(findOverlappingActiveTasks(afterMidnight, [lateTask])).toEqual([lateTask])
+    expect(findOverlappingTasks(afterMidnight, [lateTask])).toEqual([lateTask])
   })
 
-  it('ignores completed tasks and the task currently being edited', () => {
+  it('includes completed tasks and excludes the task currently being edited', () => {
     const overlapping = createDraft({ startTime: '09:15' })
-    expect(findOverlappingActiveTasks(overlapping, [{ ...baseTask, completionState: 'completed' }])).toEqual([])
-    expect(findOverlappingActiveTasks(overlapping, [baseTask], baseTask.id)).toEqual([])
+    const completedTask = { ...baseTask, completionState: 'completed' as const }
+    expect(findOverlappingTasks(overlapping, [completedTask])).toEqual([completedTask])
+    expect(findOverlappingTasks(overlapping, [baseTask], baseTask.id)).toEqual([])
+  })
+})
+
+describe('daily task schedule', () => {
+  it('includes tasks crossing into and out of the selected day in chronological order', () => {
+    const previousDayTask = { ...baseTask, id: 'previous', startTime: '23:30', plannedMinutes: 90 }
+    const morningTask = { ...baseTask, id: 'morning', date: '2026-10-22', startTime: '00:30', plannedMinutes: 90 }
+    const overnightTask = { ...baseTask, id: 'overnight', date: '2026-10-22', startTime: '23:00', plannedMinutes: 120 }
+
+    const schedule = getDailyTaskSchedule('2026-10-22', [overnightTask, morningTask, previousDayTask])
+
+    expect(schedule.allocatedTasks.map(({ task }) => task.id)).toEqual(['previous', 'morning', 'overnight'])
+    expect(schedule.allocatedTasks.map(({ startMinutes, endMinutes }) => ({ startMinutes, endMinutes }))).toEqual([
+      { startMinutes: 0, endMinutes: 60 },
+      { startMinutes: 30, endMinutes: 120 },
+      { startMinutes: 1380, endMinutes: 1440 },
+    ])
+    expect(schedule.availableRanges).toEqual([
+      { startMinutes: 120, endMinutes: 1380 },
+    ])
+  })
+
+  it('merges overlapping allocations and includes completed tasks without double-counting time', () => {
+    const firstTask = { ...baseTask, id: 'first', date: '2026-10-22', startTime: '09:00', plannedMinutes: 120 }
+    const completedTask = { ...baseTask, id: 'completed', date: '2026-10-22', startTime: '10:00', plannedMinutes: 120, completionState: 'completed' as const }
+
+    expect(getDailyTaskSchedule('2026-10-22', [firstTask, completedTask]).availableRanges).toEqual([
+      { startMinutes: 0, endMinutes: 540 },
+      { startMinutes: 720, endMinutes: 1440 },
+    ])
+  })
+
+  it('supports legacy multi-day tasks and excludes the task being edited', () => {
+    const multiDayTask = { ...baseTask, id: 'multi-day', date: '2026-10-20', startTime: '12:00', plannedMinutes: 3000 }
+
+    expect(getDailyTaskSchedule('2026-10-22', [multiDayTask]).availableRanges).toEqual([
+      { startMinutes: 840, endMinutes: 1440 },
+    ])
+    expect(getDailyTaskSchedule('2026-10-22', [multiDayTask], multiDayTask.id).availableRanges).toEqual([
+      { startMinutes: 0, endMinutes: 1440 },
+    ])
+  })
+
+  it('returns no available ranges when the entire day is allocated', () => {
+    const fullDayTask = { ...baseTask, date: '2026-10-22', startTime: '00:00', plannedMinutes: 1440 }
+    expect(getDailyTaskSchedule('2026-10-22', [fullDayTask]).availableRanges).toEqual([])
+  })
+})
+
+describe('task timing labels', () => {
+  it('shows dates for tasks that cross midnight or span multiple days', () => {
+    expect(formatTaskTiming({ ...baseTask, startTime: '23:30', plannedMinutes: 90 })).toBe('2026-10-21 23:30–2026-10-22 01:00')
+    expect(formatTaskTiming({ ...baseTask, startTime: '09:00', plannedMinutes: 2940 })).toBe('2026-10-21 09:00–2026-10-23 10:00')
   })
 })

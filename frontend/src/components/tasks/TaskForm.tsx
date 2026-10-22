@@ -3,13 +3,16 @@ import type { FormEvent } from 'react'
 import type { Task, TaskDraft } from '../../types/planner'
 import { getEarnedPoints, getMaxPoints } from '../../utils/taskMetrics'
 import { deriveEndTime, getEffectiveDurationMinutes, getEndDayOffset } from '../../utils/taskTime'
+import { findOverlappingTasks } from '../../utils/taskValidation'
 import { DatePicker } from '../ui/DatePicker'
 import { Icon } from '../ui/Icon'
 import { TimeFields } from '../ui/TimeFields'
+import { AvailableTimeSection } from './AvailableTimeSection'
 
 interface TaskFormProps {
   task?: Task
   defaultDate: string
+  tasks: Task[]
   categories: string[]
   onCreateCategory: (category: string) => void
   onSave: (draft: TaskDraft) => void
@@ -38,7 +41,7 @@ function createInitialDraft(task: Task | undefined, defaultDate: string): TaskDr
   }
 }
 
-export function TaskForm({ task, defaultDate, categories, onCreateCategory, onSave, onCancel }: TaskFormProps) {
+export function TaskForm({ task, defaultDate, tasks, categories, onCreateCategory, onSave, onCancel }: TaskFormProps) {
   const [draft, setDraft] = useState(() => createInitialDraft(task, defaultDate))
   const initialEndTime = deriveEndTime(draft.startTime, draft.plannedMinutes)
   const [startTime, setStartTime] = useState(draft.startTime)
@@ -62,6 +65,9 @@ export function TaskForm({ task, defaultDate, categories, onCreateCategory, onSa
   const endDayOffset = timeValuesChanged ? getEndDayOffset(startTime, endTime) : initialEndTime?.dayOffset ?? 0
   const maximumPoints = estimatedMinutes > 0 ? getMaxPoints(estimatedMinutes) : 0
   const earnedPoints = estimatedMinutes > 0 ? getEarnedPoints(draft.actualCompletedMinutes, estimatedMinutes) : 0
+  const conflictingTasks = estimatedMinutes > 0 && !startTimeInputErrorMessage && !endTimeInputErrorMessage
+    ? findOverlappingTasks({ ...draft, startTime, plannedMinutes: estimatedMinutes }, tasks, task?.id)
+    : []
 
   const createCategory = () => {
     const categoryName = newCategoryName.trim()
@@ -137,6 +143,7 @@ export function TaskForm({ task, defaultDate, categories, onCreateCategory, onSa
           setDurationErrorMessage('')
           if (time !== startTime) setEqualTimeErrorMessage('')
         }} errorMessage={endTimeInputErrorMessage || equalTimeErrorMessage} onValidationChange={setEndTimeInputErrorMessage} />{endDayOffset > 0 && <p className="mt-2 text-xs font-semibold text-[var(--accent-strong)]">Ends {endDayOffset === 1 ? 'the next day' : `in ${endDayOffset} days`}</p>}</div></div>
+        <AvailableTimeSection dateKey={draft.date} tasks={tasks} conflictingTasks={conflictingTasks} excludedTaskId={task?.id} />
         <div><div className="rounded-2xl bg-[var(--accent-soft)] p-4 text-sm" aria-invalid={Boolean(durationErrorMessage)} aria-describedby={durationErrorMessage ? durationErrorId : undefined}><div className="flex items-center justify-between gap-4"><span className="font-bold text-[var(--accent-strong)]">Estimated duration</span><span className="font-black text-slate-800">{estimatedMinutes > 0 ? formatDuration(estimatedMinutes) : 'Choose different times'}</span></div><div className="mt-3 flex items-center justify-between gap-4 border-t border-[var(--accent)]/10 pt-3"><span className="font-bold text-[var(--accent-strong)]">Point potential</span><span className="font-black text-slate-800">{earnedPoints.toFixed(2)} / {maximumPoints.toFixed(2)} points</span></div>{task?.completionState === 'partial' && <p className="mt-2 text-xs text-slate-600">Existing partial progress is retained when you edit scheduling details.</p>}</div>{durationErrorMessage && <p id={durationErrorId} className="mt-2 text-xs font-semibold text-red-700" role="alert">{durationErrorMessage}</p>}</div>
       </section>
       <section className="form-section">
