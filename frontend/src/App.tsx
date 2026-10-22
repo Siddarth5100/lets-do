@@ -103,7 +103,7 @@ export default function App() {
     <div className="min-h-screen bg-[var(--page)] text-slate-900 transition-colors duration-500" style={themeStyle}>
       <div className="pointer-events-none fixed -right-24 -top-32 size-96 rounded-full bg-[var(--glow)] opacity-55 blur-3xl" />
       <div className="relative flex min-h-screen">
-        <DesktopNavigation activeView={activeView} sidebarCollapsed={planner.state.settings.sidebarCollapsed} onNavigate={setActiveView} onAdd={() => openAdd()} onToggleSidebar={() => planner.updateSettings({ ...planner.state.settings, sidebarCollapsed: !planner.state.settings.sidebarCollapsed })} />
+        <DesktopNavigation activeView={activeView} sidebarCollapsed={planner.state.settings.sidebarCollapsed} onNavigate={setActiveView} onToggleSidebar={() => planner.updateSettings({ ...planner.state.settings, sidebarCollapsed: !planner.state.settings.sidebarCollapsed })} />
         <main className="min-w-0 flex-1 px-4 pb-28 pt-7 sm:px-7 lg:px-10 lg:pb-12 lg:pt-10 xl:px-14">
           <div className="mx-auto max-w-7xl">
             {planner.storageError && <p className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700" role="alert">Changes could not be saved to this browser. Check your storage settings or available space.</p>}
