@@ -1,0 +1,148 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root {
+  font-family: var(--font-sans);
+  color: #0f172a;
+  background: #f8fafc;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .page-title {
+    @apply mt-2 text-4xl font-black tracking-tight text-slate-950 sm:text-5xl;
+  }
+
+  .page-subtitle {
+    @apply mt-3 max-w-2xl text-base leading-relaxed text-slate-500;
+  }
+
+  .section-kicker {
+    @apply text-sm font-bold uppercase tracking-[0.18em] text-[var(--accent-strong)];
+  }
+
+  .panel {
+    @apply rounded-3xl border border-white/80 bg-white/85 shadow-[0_12px_36px_rgba(15,23,42,.06)] backdrop-blur;
+  }
+
+  .task-card {
+    @apply flex items-start gap-2 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:border-[var(--accent)]/40 hover:shadow-md;
+  }
+
+  .icon-button {
+    @apply grid size-9 shrink-0 place-items-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-800;
+  }
+
+  .button-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:brightness-95;
+  }
+
+  .button-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50;
+  }
+
+  .field-label {
+    @apply block text-[13px] font-bold tracking-[0.01em] text-slate-700;
+  }
+
+  .field-input {
+    @apply mt-2 block min-h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 font-normal text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,.04)] outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-[var(--accent)] focus:ring-4 focus:ring-[var(--accent-soft)] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400;
+  }
+
+  .form-section {
+    @apply space-y-4 rounded-3xl border border-slate-100 bg-slate-50/70 p-4 sm:p-5;
+  }
+
+  .form-section-heading {
+    @apply flex items-start gap-3 border-b border-slate-200/70 pb-4;
+  }
+
+  .form-section-heading > span {
+    @apply grid size-7 shrink-0 place-items-center rounded-full bg-[var(--accent)] text-xs font-black text-white;
+  }
+
+  .form-section-heading h3 {
+    @apply font-black text-slate-900;
+  }
+
+  .form-section-heading p {
+    @apply mt-0.5 text-xs leading-relaxed text-slate-500;
+  }
+
+  .duration-control {
+    @apply flex min-h-12 items-center overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,.04)] transition focus-within:border-[var(--accent)] focus-within:ring-4 focus-within:ring-[var(--accent-soft)];
+  }
+
+  .duration-control input,
+  .duration-control select {
+    @apply min-w-0 flex-1 bg-transparent px-3 py-3 text-center outline-none;
+  }
+
+  .duration-control span {
+    @apply pr-3 text-xs font-bold text-slate-400;
+  }
+
+  .toggle-row {
+    @apply flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4;
+  }
+
+  .toggle-row strong,
+  .toggle-row small {
+    @apply block;
+  }
+
+  .toggle-row strong {
+    @apply text-sm text-slate-800;
+  }
+
+  .toggle-row small {
+    @apply mt-0.5 text-xs text-slate-500;
+  }
+
+  .toggle-row input {
+    @apply size-5 accent-[var(--accent)];
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
