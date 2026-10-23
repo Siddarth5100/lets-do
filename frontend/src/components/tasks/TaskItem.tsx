@@ -94,11 +94,24 @@ export function TaskItem({
           <span>{earnedPoints.toFixed(2)} / {maximumPoints.toFixed(2)} pts</span>
           {task.reminder.enabled && <span>Reminder {task.reminder.minutesBefore}m before</span>}
         </div>
-        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div
+          className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100"
+          role="progressbar"
+          aria-label={`${task.title} progress`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progressPercentage)}
+        >
           <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${progressPercentage}%` }} />
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="relative inline-flex" onMouseEnter={() => setPartialTooltipVisible(true)} onMouseLeave={() => setPartialTooltipVisible(false)}>
+          <span
+            className="relative inline-flex"
+            onMouseEnter={() => setPartialTooltipVisible(true)}
+            onMouseLeave={() => setPartialTooltipVisible(false)}
+            onFocus={() => setPartialTooltipVisible(true)}
+            onBlur={() => setPartialTooltipVisible(false)}
+          >
             <button type="button" className={`rounded-lg px-3 py-1.5 text-xs font-bold ${task.completionState === 'partial' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--accent-soft)] text-[var(--accent-strong)]'}`} onClick={() => {
               setPartialTooltipVisible(false)
               onPartial()
