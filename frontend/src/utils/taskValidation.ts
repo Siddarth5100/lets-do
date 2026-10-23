@@ -1,8 +1,6 @@
 import type { Task, TaskDraft } from '../types/planner'
 import { addLocalDays, fromLocalDateKey, toLocalDateKey } from './dates'
-import { deriveEndTime, parseTimeToMinutes } from './taskTime'
-
-const MINUTES_PER_DAY = 24 * 60
+import { deriveEndTime, MINUTES_PER_DAY, parseTimeToMinutes } from './taskTime'
 
 export interface DailyTimeRange {
   startMinutes: number
@@ -70,6 +68,7 @@ export function getDailyTaskSchedule(dateKey: string, tasks: Task[], excludedTas
       compareTasksChronologically(firstTask.task, secondTask.task),
     )
 
+  // Merge overlaps before calculating availability so allocated minutes are never double-counted.
   const mergedAllocatedRanges = mergeTimeRanges(allocatedTasks)
   const availableRanges: DailyTimeRange[] = []
   let availableStart = 0
@@ -121,6 +120,7 @@ function getTaskInterval(dateKey: string, startTime: string, plannedMinutes: num
 
 function getCalendarDayStartMinutes(dateKey: string): number | null {
   const date = fromLocalDateKey(dateKey)
+  // UTC ordinal minutes keep each local calendar day exactly 1,440 minutes, including DST dates.
   return date ? Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 60_000 : null
 }
 
@@ -143,7 +143,7 @@ function compareTasksChronologically(firstTask: Pick<Task, 'date' | 'startTime' 
   return firstDateTime.localeCompare(secondDateTime) || firstTask.title.localeCompare(secondTask.title)
 }
 
-function formatDayMinute(minutes: number): string {
+export function formatDayMinute(minutes: number): string {
   if (minutes === MINUTES_PER_DAY) return '24:00'
   const hours = Math.floor(minutes / 60)
   const remainingMinutes = minutes % 60

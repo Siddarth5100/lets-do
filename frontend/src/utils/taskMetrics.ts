@@ -9,6 +9,7 @@ export function validatePlannedMinutes(plannedMinutes: number): void {
 
 export function getMaxPoints(plannedMinutes: number): number {
   validatePlannedMinutes(plannedMinutes)
+  // Every task is worth at least one point; longer tasks scale by planned hours.
   return Math.max(1, plannedMinutes / 60)
 }
 
@@ -27,6 +28,7 @@ export function getCompletionState(actualMinutes: number, plannedMinutes: number
 
 export function getEarnedPoints(actualMinutes: number, plannedMinutes: number): number {
   const completedMinutes = capCompletedMinutes(actualMinutes, plannedMinutes)
+  // Points follow the completed share of planned work and never exceed the task maximum.
   return getMaxPoints(plannedMinutes) * (completedMinutes / plannedMinutes)
 }
 

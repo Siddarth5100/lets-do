@@ -3,10 +3,12 @@ import {
   calculateDurationMinutes,
   canRescheduleTask,
   deriveEndTime,
+  formatDuration,
   formatMinutesAsTime,
   getEffectiveDurationMinutes,
   getEndDayOffset,
   getTaskScheduleTimestamps,
+  getTimingBoundaryDelay,
   hasTaskScheduledEndPassed,
   parseTimeToMinutes,
 } from './taskTime'
@@ -22,6 +24,12 @@ describe('task time parsing and formatting', () => {
   it('formats minutes as a normalized two-digit time', () => {
     expect(formatMinutesAsTime(0)).toBe('00:00')
     expect(formatMinutesAsTime(1500)).toBe('01:00')
+  })
+
+  it('formats compact and readable durations consistently', () => {
+    expect(formatDuration(45)).toBe('45m')
+    expect(formatDuration(60, true)).toBe('1 hour')
+    expect(formatDuration(90, true)).toBe('1h 30m')
   })
 })
 
@@ -49,6 +57,12 @@ describe('rescheduling cutoff', () => {
     expect(timestamps?.scheduledEnd).toBe(new Date(2026, 9, 23, 15, 30).getTime())
     expect(timestamps?.rescheduleCutoff).toBe(new Date(2026, 9, 23, 13, 0).getTime())
     expect(getTaskScheduleTimestamps('2026-10-23', '14:00', 0)).toBeNull()
+  })
+
+  it('returns a buffered, capped delay for the next timing boundary', () => {
+    expect(getTimingBoundaryDelay([5_000, 2_000], 1_000)).toBe(1_050)
+    expect(getTimingBoundaryDelay([1_000], 1_000)).toBeNull()
+    expect(getTimingBoundaryDelay([3_000_000_000], 0)).toBe(2_147_000_000)
   })
 })
 

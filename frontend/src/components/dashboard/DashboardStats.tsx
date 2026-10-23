@@ -99,5 +99,16 @@ function AnalogClock({ currentTime }: { currentTime: Date }) {
 }
 
 function StatCard({ label, value, detail, icon }: { label: string; value: string; detail: string; icon: 'clock' | 'check' | 'flame' }) {
-  return <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur"><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400"><span className="grid size-7 place-items-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent-strong)]"><Icon name={icon} className="size-4" /></span>{label}</div><div className="mt-3 text-2xl font-black tracking-tight text-slate-900">{value}</div><p className="mt-0.5 text-xs text-slate-500">{detail}</p></div>
+  return (
+    <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+        <span className="grid size-7 place-items-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent-strong)]">
+          <Icon name={icon} className="size-4" />
+        </span>
+        {label}
+      </div>
+      <div className="mt-3 text-2xl font-black tracking-tight text-slate-900">{value}</div>
+      <p className="mt-0.5 text-xs text-slate-500">{detail}</p>
+    </div>
+  )
 }

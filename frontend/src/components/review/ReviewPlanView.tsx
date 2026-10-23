@@ -7,24 +7,17 @@ import {
   getDailyTaskSchedule,
 } from '../../utils/taskValidation'
 import { TaskItem } from '../tasks/TaskItem'
+import type { TaskActionCallbacks } from '../tasks/TaskItem'
 import { DatePicker } from '../ui/DatePicker'
 import { Icon } from '../ui/Icon'
 
-interface ReviewPlanViewProps {
+interface ReviewPlanViewProps extends TaskActionCallbacks {
   selectedDate: string
   today: string
   tasks: Task[]
   onSelectDate: (dateKey: string) => void
   onBackToToday: () => void
   onConfirmReview: () => void
-  onEdit: (task: Task) => void
-  onDelete: (task: Task) => void
-  onToggleImportant: (task: Task) => void
-  onComplete: (task: Task) => void
-  onPartial: (task: Task) => void
-  onMarkIncomplete: (task: Task) => void
-  onReopen: (task: Task) => void
-  onReschedule: (task: Task) => void
 }
 
 export function ReviewPlanView({
@@ -34,14 +27,7 @@ export function ReviewPlanView({
   onSelectDate,
   onBackToToday,
   onConfirmReview,
-  onEdit,
-  onDelete,
-  onToggleImportant,
-  onComplete,
-  onPartial,
-  onMarkIncomplete,
-  onReopen,
-  onReschedule,
+  ...taskActions
 }: ReviewPlanViewProps) {
   const schedule = getDailyTaskSchedule(selectedDate, tasks)
   const totals = getDailyScheduleTotals(schedule)
@@ -64,7 +50,7 @@ export function ReviewPlanView({
       </header>
 
       <section className="panel relative z-20 p-5 sm:p-6">
-        <div className="max-w-sm"><DatePicker label="Review date" value={selectedDate} onChange={onSelectDate} displayMode="popover" closeOnOutsideClick /></div>
+        <div className="max-w-sm"><DatePicker label="Review date" value={selectedDate} onChange={onSelectDate} closeOnOutsideClick /></div>
         {!reviewingToday && <p className="mt-3 text-sm text-slate-500">Only today’s plan can be confirmed for the activity streak.</p>}
       </section>
 
@@ -84,17 +70,7 @@ export function ReviewPlanView({
             {schedule.allocatedTasks.map(({ task }) => (
               <li key={task.id}>
                 <p className="mb-1.5 px-1 text-xs font-bold text-slate-500">{formatTaskTiming(task)}</p>
-                <TaskItem
-                  task={task}
-                  onEdit={() => onEdit(task)}
-                  onDelete={() => onDelete(task)}
-                  onToggleImportant={() => onToggleImportant(task)}
-                  onComplete={() => onComplete(task)}
-                  onPartial={() => onPartial(task)}
-                  onMarkIncomplete={() => onMarkIncomplete(task)}
-                  onReopen={() => onReopen(task)}
-                  onReschedule={() => onReschedule(task)}
-                />
+                <TaskItem task={task} actions={taskActions} />
               </li>
             ))}
           </ol>
@@ -125,7 +101,13 @@ export function ReviewPlanView({
 }
 
 function ReviewSummaryCard({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur"><p className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p><p className="mt-2 text-2xl font-black tracking-tight text-slate-900">{value}</p><p className="mt-0.5 text-xs text-slate-500">{detail}</p></div>
+  return (
+    <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="mt-2 text-2xl font-black tracking-tight text-slate-900">{value}</p>
+      <p className="mt-0.5 text-xs text-slate-500">{detail}</p>
+    </div>
+  )
 }
 
 function formatHours(totalMinutes: number): string {

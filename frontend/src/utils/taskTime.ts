@@ -2,6 +2,8 @@ import { fromLocalDateKey } from './dates'
 
 export const MINUTES_PER_DAY = 24 * 60
 const RESCHEDULE_CUTOFF_MINUTES = 60
+const TIMING_BOUNDARY_BUFFER_MILLISECONDS = 50
+const MAXIMUM_TIMEOUT_DELAY_MILLISECONDS = 2_147_000_000
 
 export interface TaskScheduleTimestamps {
   scheduledStart: number
@@ -32,6 +34,18 @@ export function formatMinutesAsTime(totalMinutes: number): string {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
 }
 
+export function formatDuration(totalMinutes: number, useLongUnits = false): string {
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours === 0) return useLongUnits ? `${minutes} minutes` : `${minutes}m`
+  if (minutes === 0) {
+    return useLongUnits
+      ? `${hours} ${hours === 1 ? 'hour' : 'hours'}`
+      : `${hours}h`
+  }
+  return `${hours}h ${minutes}m`
+}
+
 export function deriveEndTime(startTime: string, durationMinutes: number): DerivedEndTime | null {
   const startMinutes = parseTimeToMinutes(startTime)
   if (startMinutes === null || !Number.isFinite(durationMinutes) || durationMinutes <= 0) return null
@@ -48,6 +62,7 @@ export function calculateDurationMinutes(startTime: string, endTime: string): nu
   const endMinutes = parseTimeToMinutes(endTime)
   if (startMinutes === null || endMinutes === null) return null
   if (startMinutes === endMinutes) return 0
+  // An earlier end time represents a valid interval that crosses local midnight.
   return endMinutes > startMinutes
     ? endMinutes - startMinutes
     : MINUTES_PER_DAY - startMinutes + endMinutes
@@ -73,9 +88,10 @@ export function getEndDayOffset(startTime: string, endTime: string): number {
 }
 
 export function canRescheduleTask(taskDate: string, startTime: string, currentTime = new Date()): boolean {
-  const scheduleTimestamps = getTaskScheduleTimestamps(taskDate, startTime, 1)
-  if (!scheduleTimestamps || Number.isNaN(currentTime.getTime())) return false
-  return currentTime.getTime() < scheduleTimestamps.rescheduleCutoff
+  const scheduledStart = getTaskScheduledStartTimestamp(taskDate, startTime)
+  if (scheduledStart === null || Number.isNaN(currentTime.getTime())) return false
+  // The cutoff is exclusive: saving at exactly one hour before the start is too late.
+  return currentTime.getTime() < scheduledStart - RESCHEDULE_CUTOFF_MINUTES * 60_000
 }
 
 export function hasTaskScheduledEndPassed(taskDate: string, startTime: string, plannedMinutes: number, currentTime = new Date()): boolean {
@@ -85,21 +101,42 @@ export function hasTaskScheduledEndPassed(taskDate: string, startTime: string, p
 }
 
 export function getTaskScheduleTimestamps(taskDate: string, startTime: string, plannedMinutes: number): TaskScheduleTimestamps | null {
-  const taskDateValue = fromLocalDateKey(taskDate)
-  const startMinutes = parseTimeToMinutes(startTime)
-  if (!taskDateValue || startMinutes === null || !Number.isFinite(plannedMinutes) || plannedMinutes <= 0) return null
+  const scheduledStartTimestamp = getTaskScheduledStartTimestamp(taskDate, startTime)
+  if (scheduledStartTimestamp === null || !Number.isFinite(plannedMinutes) || plannedMinutes <= 0) return null
 
-  const scheduledStart = new Date(
-    taskDateValue.getFullYear(),
-    taskDateValue.getMonth(),
-    taskDateValue.getDate(),
-    Math.floor(startMinutes / 60),
-    startMinutes % 60,
-  )
-  const scheduledStartTimestamp = scheduledStart.getTime()
   return {
     scheduledStart: scheduledStartTimestamp,
     scheduledEnd: scheduledStartTimestamp + plannedMinutes * 60_000,
     rescheduleCutoff: scheduledStartTimestamp - RESCHEDULE_CUTOFF_MINUTES * 60_000,
   }
+}
+
+export function getTimingBoundaryDelay(
+  boundaryTimestamps: number[],
+  currentTimestamp = Date.now(),
+): number | null {
+  const nextBoundary = boundaryTimestamps
+    .filter((timestamp) => timestamp > currentTimestamp)
+    .sort((firstTimestamp, secondTimestamp) => firstTimestamp - secondTimestamp)[0]
+
+  return nextBoundary === undefined
+    ? null
+    : Math.min(
+        nextBoundary - currentTimestamp + TIMING_BOUNDARY_BUFFER_MILLISECONDS,
+        MAXIMUM_TIMEOUT_DELAY_MILLISECONDS,
+      )
+}
+
+function getTaskScheduledStartTimestamp(taskDate: string, startTime: string): number | null {
+  const taskDateValue = fromLocalDateKey(taskDate)
+  const startMinutes = parseTimeToMinutes(startTime)
+  if (!taskDateValue || startMinutes === null) return null
+
+  return new Date(
+    taskDateValue.getFullYear(),
+    taskDateValue.getMonth(),
+    taskDateValue.getDate(),
+    Math.floor(startMinutes / 60),
+    startMinutes % 60,
+  ).getTime()
 }

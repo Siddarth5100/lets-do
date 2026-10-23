@@ -1,8 +1,8 @@
 import type { Task } from '../../types/planner'
 import { addLocalDays, fromLocalDateKey, toLocalDateKey } from '../../utils/dates'
-import { deriveEndTime } from '../../utils/taskTime'
+import { deriveEndTime, MINUTES_PER_DAY } from '../../utils/taskTime'
 import type { DailyTimeRange } from '../../utils/taskValidation'
-import { formatTaskTiming, getDailyTaskSchedule } from '../../utils/taskValidation'
+import { formatDayMinute, formatTaskTiming, getDailyTaskSchedule } from '../../utils/taskValidation'
 
 interface AvailableTimeSectionProps {
   dateKey: string
@@ -29,7 +29,9 @@ export function AvailableTimeSection({ dateKey, tasks, conflictingTasks, exclude
                   <li key={task.id} className="rounded-xl bg-slate-50 px-3 py-3">
                     <div className="flex items-start justify-between gap-3">
                       <span className="text-sm font-bold text-slate-800">{task.title}</span>
-                      <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${getCompletionStatusClassName(task)}`}>{task.completionState}</span>
+                      <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${getCompletionStatusClassName(task)}`}>
+                        {task.completionState}
+                      </span>
                     </div>
                     <div className="mt-3 grid grid-cols-2 gap-3">
                       <div>
@@ -125,7 +127,7 @@ function getTaskDateTimeRange(task: Task): DateTimeRange {
 
 function getDailyRangeDateTime(dateKey: string, range: DailyTimeRange): DateTimeRange {
   const selectedDate = fromLocalDateKey(dateKey)
-  const endsOnNextDay = range.endMinutes === 24 * 60
+  const endsOnNextDay = range.endMinutes === MINUTES_PER_DAY
   const endDate = selectedDate && endsOnNextDay
     ? toLocalDateKey(addLocalDays(selectedDate, 1))
     : dateKey
@@ -141,12 +143,6 @@ function formatDisplayDate(dateKey: string): string {
   return date
     ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
     : dateKey
-}
-
-function formatDayMinute(minutes: number): string {
-  const hours = Math.floor(minutes / 60)
-  const remainingMinutes = minutes % 60
-  return `${String(hours).padStart(2, '0')}:${String(remainingMinutes).padStart(2, '0')}`
 }
 
 function getCompletionStatusClassName(task: Task): string {

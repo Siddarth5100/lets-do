@@ -95,6 +95,7 @@ export function parsePlannerState(serializedState: string | null): PlannerState 
     if (!parsed.tasks.every(isTask)) return defaultPlannerState
     const tasks = normalizeTasks(parsed.tasks)
     if (parsed.version === 1) {
+      // Version 1 stored bare timestamps; associate them with tasks when the timestamp still matches.
       return {
         version: 2,
         tasks,

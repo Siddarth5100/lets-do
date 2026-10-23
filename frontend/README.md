@@ -1,11 +1,11 @@
 # Let's Do Frontend
 
-The responsive frontend for Let's Do, a personal daily planner and progress-tracking application. Task and preference data currently persists in the browser through `localStorage`.
+The Let's Do v1 frontend is a responsive, browser-based daily planner. It schedules tasks across calendar days, tracks partial and complete outcomes, calculates duration-weighted points, and stores planner data locally without requiring an account.
 
-## Technology Stack
+## Technology
 
 - React 19 and React DOM
-- TypeScript 6
+- TypeScript 6 in strict mode
 - Vite 8
 - Tailwind CSS 4
 - Oxlint
@@ -13,62 +13,95 @@ The responsive frontend for Let's Do, a personal daily planner and progress-trac
 
 ## Prerequisites
 
-- Node.js 24 is recommended. The installed tooling also supports Node.js 22.12.x and 26 or later.
+- Node.js `^20.19.0` or `>=22.12.0`
 - npm
 
-## Installation and Development
+## Setup and Commands
 
-From the repository root:
+Run commands from `frontend/`:
 
 ```bash
-cd frontend
 npm install
-npm run dev
+npm run dev       # Start the Vite development server
+npm test          # Run unit tests once
+npm run lint      # Run Oxlint
+npm run build     # Type-check and create a production build
+npm run preview   # Preview the production build
 ```
 
-Vite prints the local development URL when the server starts.
-
-## Quality Checks and Production Build
+For an explicit strict TypeScript check without building:
 
 ```bash
-npm run lint     # Run Oxlint
-npm test         # Run the Vitest unit tests once
-npm run build    # Type-check and create a production build
-npm run preview  # Preview the production build locally
+./node_modules/.bin/tsc -p tsconfig.app.json --noEmit
 ```
 
-## Source Structure
+## Source Architecture
 
 ```text
 src/
-├── components/   # Calendar, dashboard, layout, settings, task, and shared UI components
-├── data/         # Default categories, weekday slogans, and themes
-├── hooks/        # Planner state and persistence behavior
-├── types/        # Planner domain types
-├── utils/        # Date, scoring, storage, and task-validation logic with unit tests
-├── App.tsx       # Application composition and view coordination
-├── index.css     # Tailwind imports and shared styles
+├── components/   # Dashboard, calendar, review, settings, task, layout, and shared UI
+├── data/         # Default categories, weekday slogans, and seven themes
+├── hooks/        # Current local date and planner state coordination
+├── types/        # Planner domain and navigation types
+├── utils/        # Scoring, scheduling, transitions, validation, dates, and storage
+├── App.tsx       # View, task-form, confirmation, and navigation orchestration
+├── index.css     # Tailwind import and shared component styles
 └── main.tsx      # React entry point
 ```
 
+UI components delegate scoring, scheduling, validation, state transitions, and persistence to typed hooks and utility functions. Business-logic utilities have Vitest coverage.
+
 ## Current Features
 
-- Responsive Today, Calendar, task form, and Settings views
-- Task creation, editing, deletion, importance, categories, scheduling, and estimated duration
-- Persisted custom categories and collapsible desktop sidebar preference
-- Pending, partial, and completed task states with duration-weighted points
-- Separate activity and completion streaks
-- Available-hours and daily-progress indicators
-- Same-day duplicate-name and active-task overlap warnings with confirmation
-- Seven automatic weekday themes with manual selection
-- Versioned `localStorage` persistence with migration of earlier planner data
-- Stored reminder preferences without notification delivery
+- Responsive Today dashboard with categorized active tasks, outcome sections, daily slogan, live analog clock, time remaining, points progress, and separate streaks
+- Calendar view for selecting dates and managing their tasks
+- Review Plan view with date selection, chronological tasks, overnight and multi-day intersections, allocated/free time totals, merged overlap calculations, and available ranges
+- Task creation and editing with custom categories, date, 24-hour start/end fields, automatically derived duration, importance, and stored reminder preferences
+- Duplicate-name and schedule-overlap warnings that require explicit confirmation
+- Rescheduling through the existing task form before the one-hour cutoff preceding the original start
+- Collapsible desktop navigation, mobile navigation, session-restored active view, and persisted Review Plan date
+- Seven automatic weekday themes with manual selection and a stored daily-capacity preference
+- Accessible dialogs, task progress indicators, form errors, and keyboard-available Partial guidance
+
+## Scoring and Outcomes
+
+Maximum points are duration-weighted:
+
+```text
+maxPoints = max(1, plannedMinutes / 60)
+earnedPoints = maxPoints × min(actualCompletedMinutes, plannedMinutes) / plannedMinutes
+```
+
+- **Pending:** zero completed minutes and zero points.
+- **Partial:** exactly 50% of planned minutes and points. It remains active until its scheduled end, then appears in the Completed section as “Partially Completed” without becoming fully completed.
+- **Completed:** 100% progress and full points. A qualifying completion event is recorded.
+- **Incomplete:** zero progress and points after explicit confirmation.
+- Completed, incomplete, and elapsed partial tasks can be corrected back to Pending.
+
+Scheduled time passing never awards points or changes the stored outcome automatically.
+
+## Streaks
+
+- **Activity streak:** records local calendar dates for explicit planning actions such as creating, editing, completing, or confirming today's review. Opening the application does not count.
+- **Completion streak:** records a timestamp when at least one eligible task is fully completed. Partial and incomplete outcomes do not qualify.
+- Future planned tasks do not create completion events. Deleting or reopening a completed task removes its associated completion event while preserving genuine planning activity history.
+- Missing days break streaks; the current day does not break a streak while still in progress.
+
+Rest-day streak pausing is not implemented.
+
+## Storage
+
+- Planner state uses versioned `localStorage` under `lets-do.planner.v1`. The loader preserves supported earlier data and migrates version 1 completion timestamps to the current event model.
+- Active view and Review Plan date use `sessionStorage` under `lets-do.navigation.v1`, so refreshes in the same tab restore navigation while a fresh tab starts on Today.
+- Invalid, malformed, blocked, or unwritable storage is handled with safe fallbacks; planner write failures display an in-app warning.
+
+All data remains in the current browser profile and is not synchronized or backed up remotely.
 
 ## Known Limitations
 
-- Data is local to one browser and is not synchronized between devices.
-- Backend services, accounts, authentication, and cloud persistence are not implemented.
-- Reminder preferences do not schedule or deliver notifications.
-- Recurring routines and streak-pausing rest days are not implemented.
-- Navigation is application state-based and does not provide shareable view URLs.
-- Inter is loaded from Google Fonts; the system font stack is used when it is unavailable.
+- No backend, database, authentication, accounts, or cross-device synchronization
+- Reminder settings are stored but notifications are not scheduled or delivered
+- No recurring routines, rest-day streak pauses, cancellation, or overdue automation
+- Navigation is state-based and does not provide shareable URLs or browser history routes
+- Daily capacity is informational and does not restrict scheduling
+- Inter is loaded from Google Fonts, with the configured system font stack as fallback
