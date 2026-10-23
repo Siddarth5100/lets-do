@@ -1,19 +1,16 @@
-import { useEffect, useState } from 'react'
-import type { CompletionEvent, PlannerSettings, PlannerState, Task, TaskDraft } from '../types/planner'
-import { toLocalDateKey } from '../utils/dates'
-import { getCompletionState, removeTaskCompletionEvents, shouldRecordCompletion } from '../utils/taskMetrics'
+import { useRef, useState } from 'react'
+import type { PlannerSettings, PlannerState, Task, TaskDraft } from '../types/planner'
+import {
+  markTaskIncompleteInPlannerState,
+  recordPlannerActivity,
+  reopenTaskInPlannerState,
+  updateTaskInPlannerState,
+} from '../utils/plannerTransitions'
+import { getCompletionState, getPartialCompletedMinutes, removeTaskCompletionEvents, shouldRecordCompletion } from '../utils/taskMetrics'
 import { defaultPlannerState, loadPlannerState, savePlannerState } from '../utils/storage'
-
-function unique(values: string[]): string[] {
-  return [...new Set(values)]
-}
 
 function createId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
-function createCompletionEvent(taskId: string, completedAt: string): CompletionEvent {
-  return { id: createId(), taskId, completedAt }
 }
 
 export function usePlanner() {
@@ -21,16 +18,15 @@ export function usePlanner() {
     if (typeof window === 'undefined') return defaultPlannerState
     return loadPlannerState(window.localStorage)
   })
+  const stateRef = useRef(state)
   const [storageError, setStorageError] = useState(false)
 
-  useEffect(() => {
-    setStorageError(!savePlannerState(window.localStorage, state))
-  }, [state])
-
-  const recordActivity = (current: PlannerState, now: Date): PlannerState => ({
-    ...current,
-    activityDates: unique([...current.activityDates, toLocalDateKey(now)]),
-  })
+  const commitState = (updateState: (currentState: PlannerState) => PlannerState) => {
+    const nextState = updateState(stateRef.current)
+    stateRef.current = nextState
+    setState(nextState)
+    setStorageError(!savePlannerState(window.localStorage, nextState))
+  }
 
   const addTask = (draft: TaskDraft, now = new Date()): Task => {
     const timestamp = now.toISOString()
@@ -44,13 +40,13 @@ export function usePlanner() {
       updatedAt: timestamp,
       completedAt: stateValue === 'completed' ? timestamp : null,
     }
-    setState((current) => {
-      const withActivity = recordActivity(current, now)
+    commitState((current) => {
+      const withActivity = recordPlannerActivity(current, now)
       return {
         ...withActivity,
         tasks: [...withActivity.tasks, task],
         completionEvents: stateValue === 'completed' && shouldRecordCompletion(task.date, now)
-          ? [...withActivity.completionEvents, createCompletionEvent(task.id, timestamp)]
+          ? [...withActivity.completionEvents, { id: createId(), taskId: task.id, completedAt: timestamp }]
           : withActivity.completionEvents,
       }
     })
@@ -58,63 +54,58 @@ export function usePlanner() {
   }
 
   const updateTask = (id: string, draft: TaskDraft, now = new Date()) => {
-    const timestamp = now.toISOString()
-    setState((current) => {
-      const previousTask = current.tasks.find((task) => task.id === id)
-      const nextCompletionState = getCompletionState(draft.actualCompletedMinutes, draft.plannedMinutes)
-      const newlyCompleted = Boolean(previousTask) && previousTask?.completionState !== 'completed' && nextCompletionState === 'completed'
-      const reopened = previousTask?.completionState === 'completed' && nextCompletionState !== 'completed'
-      const newCompletionTimestamp = newlyCompleted && shouldRecordCompletion(draft.date, now) ? timestamp : null
-      const tasks = current.tasks.map((task) => {
-        if (task.id !== id) return task
-        return {
-          ...task,
-          ...draft,
-          actualCompletedMinutes: Math.max(0, draft.actualCompletedMinutes),
-          completionState: nextCompletionState,
-          updatedAt: timestamp,
-          completedAt: newlyCompleted ? timestamp : nextCompletionState === 'completed' ? task.completedAt : null,
-        }
-      })
-      const withActivity = recordActivity(current, now)
-      return {
-        ...withActivity,
-        tasks,
-        completionEvents: newCompletionTimestamp
-          ? [...withActivity.completionEvents, createCompletionEvent(id, newCompletionTimestamp)]
-          : reopened
-            ? removeTaskCompletionEvents(withActivity.completionEvents, id)
-            : withActivity.completionEvents,
-      }
-    })
-  }
-
-  const setTaskProgress = (id: string, actualCompletedMinutes: number, now = new Date()) => {
-    const task = state.tasks.find((item) => item.id === id)
-    if (!task) return
-    updateTask(id, { ...task, actualCompletedMinutes }, now)
+    commitState((current) => updateTaskInPlannerState(current, id, draft, now, createId()))
   }
 
   const completeTask = (id: string, now = new Date()) => {
-    const task = state.tasks.find((item) => item.id === id)
-    if (!task) return
-    updateTask(id, { ...task, actualCompletedMinutes: task.plannedMinutes }, now)
+    commitState((current) => {
+      const task = current.tasks.find((item) => item.id === id)
+      if (!task) return current
+      return updateTaskInPlannerState(
+        current,
+        id,
+        { ...task, actualCompletedMinutes: task.plannedMinutes },
+        now,
+        createId(),
+      )
+    })
+  }
+
+  const toggleTaskPartial = (id: string, now = new Date()) => {
+    commitState((current) => {
+      const task = current.tasks.find((item) => item.id === id)
+      if (!task) return current
+      const actualCompletedMinutes = task.completionState === 'partial'
+        ? 0
+        : getPartialCompletedMinutes(task.plannedMinutes)
+      return updateTaskInPlannerState(
+        current,
+        id,
+        { ...task, actualCompletedMinutes },
+        now,
+        createId(),
+      )
+    })
+  }
+
+  const markTaskIncomplete = (id: string, now = new Date()) => {
+    commitState((current) => markTaskIncompleteInPlannerState(current, id, now))
   }
 
   const reopenTask = (id: string, now = new Date()) => {
-    const task = state.tasks.find((item) => item.id === id)
-    if (!task) return
-    updateTask(id, { ...task, actualCompletedMinutes: 0 }, now)
+    commitState((current) => reopenTaskInPlannerState(current, id, now))
   }
 
   const toggleImportant = (id: string, now = new Date()) => {
-    const task = state.tasks.find((item) => item.id === id)
-    if (!task) return
-    updateTask(id, { ...task, important: !task.important }, now)
+    commitState((current) => {
+      const task = current.tasks.find((item) => item.id === id)
+      if (!task) return current
+      return updateTaskInPlannerState(current, id, { ...task, important: !task.important }, now, createId())
+    })
   }
 
   const deleteTask = (id: string) => {
-    setState((current) => ({
+    commitState((current) => ({
       ...current,
       tasks: current.tasks.filter((task) => task.id !== id),
       completionEvents: removeTaskCompletionEvents(current.completionEvents, id),
@@ -122,17 +113,17 @@ export function usePlanner() {
   }
 
   const reviewPlan = (now = new Date()) => {
-    setState((current) => recordActivity(current, now))
+    commitState((current) => recordPlannerActivity(current, now))
   }
 
   const updateSettings = (settings: PlannerSettings) => {
-    setState((current) => ({ ...current, settings }))
+    commitState((current) => ({ ...current, settings }))
   }
 
   const addCustomCategory = (category: string) => {
     const normalizedCategory = category.trim()
     if (!normalizedCategory) return
-    setState((current) => ({
+    commitState((current) => ({
       ...current,
       customCategories: current.customCategories.some((existingCategory) => existingCategory.toLocaleLowerCase() === normalizedCategory.toLocaleLowerCase())
         ? current.customCategories
@@ -145,8 +136,9 @@ export function usePlanner() {
     storageError,
     addTask,
     updateTask,
-    setTaskProgress,
     completeTask,
+    toggleTaskPartial,
+    markTaskIncomplete,
     reopenTask,
     toggleImportant,
     deleteTask,

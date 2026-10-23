@@ -1,7 +1,14 @@
-import type { CompletionEvent, PlannerState, Task } from '../types/planner'
+import type { CompletionEvent, PlannerState, Task, ViewName } from '../types/planner'
+import { fromLocalDateKey } from './dates'
 import { getCompletionState } from './taskMetrics'
 
 export const STORAGE_KEY = 'lets-do.planner.v1'
+export const NAVIGATION_STORAGE_KEY = 'lets-do.navigation.v1'
+
+export interface NavigationState {
+  activeView: ViewName
+  selectedDate: string
+}
 
 export const defaultPlannerState: PlannerState = {
   version: 2,
@@ -37,11 +44,13 @@ function normalizeSettings(value: unknown): PlannerState['settings'] {
 }
 
 function normalizeTasks(tasks: Task[]): Task[] {
-  return tasks.map((task) => ({
-    ...task,
-    actualCompletedMinutes: Math.max(0, task.actualCompletedMinutes),
-    completionState: getCompletionState(task.actualCompletedMinutes, task.plannedMinutes),
-  }))
+  return tasks.map((task) => {
+    const actualCompletedMinutes = Math.max(0, task.actualCompletedMinutes)
+    const completionState = task.completionState === 'incomplete' && actualCompletedMinutes === 0
+      ? 'incomplete'
+      : getCompletionState(actualCompletedMinutes, task.plannedMinutes)
+    return { ...task, actualCompletedMinutes, completionState }
+  })
 }
 
 function migrateCompletionEvents(tasks: Task[], timestamps: string[]): CompletionEvent[] {
@@ -86,6 +95,7 @@ export function parsePlannerState(serializedState: string | null): PlannerState 
     if (!parsed.tasks.every(isTask)) return defaultPlannerState
     const tasks = normalizeTasks(parsed.tasks)
     if (parsed.version === 1) {
+      // Version 1 stored bare timestamps; associate them with tasks when the timestamp still matches.
       return {
         version: 2,
         tasks,
@@ -126,4 +136,43 @@ export function savePlannerState(storage: Pick<Storage, 'setItem'>, state: Plann
   } catch {
     return false
   }
+}
+
+export function parseNavigationState(serializedState: string | null, currentDateKey: string): NavigationState {
+  const defaultNavigationState: NavigationState = { activeView: 'today', selectedDate: currentDateKey }
+  if (!serializedState) return defaultNavigationState
+
+  try {
+    const parsed: unknown = JSON.parse(serializedState)
+    if (!isRecord(parsed)) return defaultNavigationState
+    return {
+      activeView: isViewName(parsed.activeView) ? parsed.activeView : 'today',
+      selectedDate: typeof parsed.selectedDate === 'string' && fromLocalDateKey(parsed.selectedDate)
+        ? parsed.selectedDate
+        : currentDateKey,
+    }
+  } catch {
+    return defaultNavigationState
+  }
+}
+
+export function loadNavigationState(storage: Pick<Storage, 'getItem'>, currentDateKey: string): NavigationState {
+  try {
+    return parseNavigationState(storage.getItem(NAVIGATION_STORAGE_KEY), currentDateKey)
+  } catch {
+    return { activeView: 'today', selectedDate: currentDateKey }
+  }
+}
+
+export function saveNavigationState(storage: Pick<Storage, 'setItem'>, state: NavigationState): boolean {
+  try {
+    storage.setItem(NAVIGATION_STORAGE_KEY, JSON.stringify(state))
+    return true
+  } catch {
+    return false
+  }
+}
+
+function isViewName(value: unknown): value is ViewName {
+  return value === 'today' || value === 'calendar' || value === 'review' || value === 'settings'
 }

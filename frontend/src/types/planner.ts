@@ -1,4 +1,4 @@
-export type CompletionState = 'pending' | 'partial' | 'completed'
+export type CompletionState = 'pending' | 'partial' | 'completed' | 'incomplete'
 
 export interface ReminderSettings {
   enabled: boolean
@@ -53,4 +53,4 @@ export interface PlannerState {
   settings: PlannerSettings
 }
 
-export type ViewName = 'today' | 'calendar' | 'settings'
+export type ViewName = 'today' | 'calendar' | 'review' | 'settings'
