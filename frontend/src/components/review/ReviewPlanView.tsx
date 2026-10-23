@@ -21,8 +21,10 @@ interface ReviewPlanViewProps {
   onDelete: (task: Task) => void
   onToggleImportant: (task: Task) => void
   onComplete: (task: Task) => void
+  onPartial: (task: Task) => void
+  onMarkIncomplete: (task: Task) => void
   onReopen: (task: Task) => void
-  onSetPartialProgress: (task: Task, minutes: number) => void
+  onReschedule: (task: Task) => void
 }
 
 export function ReviewPlanView({
@@ -36,8 +38,10 @@ export function ReviewPlanView({
   onDelete,
   onToggleImportant,
   onComplete,
+  onPartial,
+  onMarkIncomplete,
   onReopen,
-  onSetPartialProgress,
+  onReschedule,
 }: ReviewPlanViewProps) {
   const schedule = getDailyTaskSchedule(selectedDate, tasks)
   const totals = getDailyScheduleTotals(schedule)
@@ -86,8 +90,10 @@ export function ReviewPlanView({
                   onDelete={() => onDelete(task)}
                   onToggleImportant={() => onToggleImportant(task)}
                   onComplete={() => onComplete(task)}
+                  onPartial={() => onPartial(task)}
+                  onMarkIncomplete={() => onMarkIncomplete(task)}
                   onReopen={() => onReopen(task)}
-                  onSetPartialProgress={(minutes) => onSetPartialProgress(task, minutes)}
+                  onReschedule={() => onReschedule(task)}
                 />
               </li>
             ))}

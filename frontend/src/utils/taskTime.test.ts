@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   calculateDurationMinutes,
+  canRescheduleTask,
   deriveEndTime,
   formatMinutesAsTime,
   getEffectiveDurationMinutes,
   getEndDayOffset,
+  getTaskScheduleTimestamps,
+  hasTaskScheduledEndPassed,
   parseTimeToMinutes,
 } from './taskTime'
 
@@ -19,6 +22,33 @@ describe('task time parsing and formatting', () => {
   it('formats minutes as a normalized two-digit time', () => {
     expect(formatMinutesAsTime(0)).toBe('00:00')
     expect(formatMinutesAsTime(1500)).toBe('01:00')
+  })
+})
+
+describe('rescheduling cutoff', () => {
+  it('allows rescheduling only before one hour prior to the original start', () => {
+    expect(canRescheduleTask('2026-10-23', '14:00', new Date(2026, 9, 23, 12, 59, 59))).toBe(true)
+    expect(canRescheduleTask('2026-10-23', '14:00', new Date(2026, 9, 23, 13, 0, 0))).toBe(false)
+    expect(canRescheduleTask('2026-10-23', '14:00', new Date(2026, 9, 23, 13, 30, 0))).toBe(false)
+  })
+
+  it('handles midnight starts and rejects invalid scheduling values', () => {
+    expect(canRescheduleTask('2026-10-24', '00:30', new Date(2026, 9, 23, 23, 0, 0))).toBe(true)
+    expect(canRescheduleTask('2026-10-24', '00:30', new Date(2026, 9, 23, 23, 30, 0))).toBe(false)
+    expect(canRescheduleTask('invalid', '09:00')).toBe(false)
+    expect(canRescheduleTask('2026-10-24', '25:00')).toBe(false)
+  })
+
+  it('detects when an overnight task has passed its scheduled end', () => {
+    expect(hasTaskScheduledEndPassed('2026-10-23', '23:30', 90, new Date(2026, 9, 24, 0, 59, 59))).toBe(false)
+    expect(hasTaskScheduledEndPassed('2026-10-23', '23:30', 90, new Date(2026, 9, 24, 1, 0, 0))).toBe(true)
+  })
+
+  it('returns timing boundaries for valid tasks and rejects invalid durations', () => {
+    const timestamps = getTaskScheduleTimestamps('2026-10-23', '14:00', 90)
+    expect(timestamps?.scheduledEnd).toBe(new Date(2026, 9, 23, 15, 30).getTime())
+    expect(timestamps?.rescheduleCutoff).toBe(new Date(2026, 9, 23, 13, 0).getTime())
+    expect(getTaskScheduleTimestamps('2026-10-23', '14:00', 0)).toBeNull()
   })
 })
 

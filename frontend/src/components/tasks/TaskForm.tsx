@@ -1,7 +1,7 @@
 import { useId, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Task, TaskDraft } from '../../types/planner'
-import { getEarnedPoints, getMaxPoints } from '../../utils/taskMetrics'
+import { getEarnedPoints, getMaxPoints, getPartialCompletedMinutes } from '../../utils/taskMetrics'
 import { deriveEndTime, getEffectiveDurationMinutes, getEndDayOffset } from '../../utils/taskTime'
 import { findOverlappingTasks } from '../../utils/taskValidation'
 import { DatePicker } from '../ui/DatePicker'
@@ -17,6 +17,7 @@ interface TaskFormProps {
   onCreateCategory: (category: string) => void
   onSave: (draft: TaskDraft) => void
   onCancel: () => void
+  schedulingLocked?: boolean
 }
 
 function createInitialDraft(task: Task | undefined, defaultDate: string): TaskDraft {
@@ -41,7 +42,7 @@ function createInitialDraft(task: Task | undefined, defaultDate: string): TaskDr
   }
 }
 
-export function TaskForm({ task, defaultDate, tasks, categories, onCreateCategory, onSave, onCancel }: TaskFormProps) {
+export function TaskForm({ task, defaultDate, tasks, categories, onCreateCategory, onSave, onCancel, schedulingLocked = false }: TaskFormProps) {
   const [draft, setDraft] = useState(() => createInitialDraft(task, defaultDate))
   const initialEndTime = deriveEndTime(draft.startTime, draft.plannedMinutes)
   const [startTime, setStartTime] = useState(draft.startTime)
@@ -64,7 +65,10 @@ export function TaskForm({ task, defaultDate, tasks, categories, onCreateCategor
   const estimatedMinutes = getEffectiveDurationMinutes(startTime, endTime, draft.startTime, initialEndTime?.endTime ?? draft.startTime, draft.plannedMinutes) ?? 0
   const endDayOffset = timeValuesChanged ? getEndDayOffset(startTime, endTime) : initialEndTime?.dayOffset ?? 0
   const maximumPoints = estimatedMinutes > 0 ? getMaxPoints(estimatedMinutes) : 0
-  const earnedPoints = estimatedMinutes > 0 ? getEarnedPoints(draft.actualCompletedMinutes, estimatedMinutes) : 0
+  const previewCompletedMinutes = task?.completionState === 'partial' && !schedulingLocked && estimatedMinutes > 0
+    ? getPartialCompletedMinutes(estimatedMinutes)
+    : draft.actualCompletedMinutes
+  const earnedPoints = estimatedMinutes > 0 ? getEarnedPoints(previewCompletedMinutes, estimatedMinutes) : 0
   const conflictingTasks = estimatedMinutes > 0 && !startTimeInputErrorMessage && !endTimeInputErrorMessage
     ? findOverlappingTasks({ ...draft, startTime, plannedMinutes: estimatedMinutes }, tasks, task?.id)
     : []
@@ -133,18 +137,31 @@ export function TaskForm({ task, defaultDate, tasks, categories, onCreateCategor
       </section>
       <section className="form-section">
         <div className="form-section-heading"><span>2</span><div><h3>Schedule it</h3><p>Give the task a clear place in your day.</p></div></div>
-        <DatePicker label="Date" value={draft.date} onChange={(date) => setDraft({ ...draft, date })} />
-        <div className="grid gap-4 sm:grid-cols-2"><TimeFields label="Start time" value={startTime} onChange={(time) => {
-          setStartTime(time)
-          setDurationErrorMessage('')
-          if (time !== endTime) setEqualTimeErrorMessage('')
-        }} errorMessage={startTimeInputErrorMessage} onValidationChange={setStartTimeInputErrorMessage} /><div><TimeFields label="End time" value={endTime} onChange={(time) => {
-          setEndTime(time)
-          setDurationErrorMessage('')
-          if (time !== startTime) setEqualTimeErrorMessage('')
-        }} errorMessage={endTimeInputErrorMessage || equalTimeErrorMessage} onValidationChange={setEndTimeInputErrorMessage} />{endDayOffset > 0 && <p className="mt-2 text-xs font-semibold text-[var(--accent-strong)]">Ends {endDayOffset === 1 ? 'the next day' : `in ${endDayOffset} days`}</p>}</div></div>
-        <AvailableTimeSection dateKey={draft.date} tasks={tasks} conflictingTasks={conflictingTasks} excludedTaskId={task?.id} />
-        <div><div className="rounded-2xl bg-[var(--accent-soft)] p-4 text-sm" aria-invalid={Boolean(durationErrorMessage)} aria-describedby={durationErrorMessage ? durationErrorId : undefined}><div className="flex items-center justify-between gap-4"><span className="font-bold text-[var(--accent-strong)]">Estimated duration</span><span className="font-black text-slate-800">{estimatedMinutes > 0 ? formatDuration(estimatedMinutes) : 'Choose different times'}</span></div><div className="mt-3 flex items-center justify-between gap-4 border-t border-[var(--accent)]/10 pt-3"><span className="font-bold text-[var(--accent-strong)]">Point potential</span><span className="font-black text-slate-800">{earnedPoints.toFixed(2)} / {maximumPoints.toFixed(2)} points</span></div>{task?.completionState === 'partial' && <p className="mt-2 text-xs text-slate-600">Existing partial progress is retained when you edit scheduling details.</p>}</div>{durationErrorMessage && <p id={durationErrorId} className="mt-2 text-xs font-semibold text-red-700" role="alert">{durationErrorMessage}</p>}</div>
+        {schedulingLocked ? (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="grid gap-3 text-sm sm:grid-cols-3">
+              <div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Date</p><p className="mt-1 font-bold text-slate-800">{draft.date}</p></div>
+              <div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">Start</p><p className="mt-1 font-bold text-slate-800">{startTime}</p></div>
+              <div><p className="text-xs font-bold uppercase tracking-wider text-slate-400">End</p><p className="mt-1 font-bold text-slate-800">{endTime}</p></div>
+            </div>
+            <p className="mt-3 text-xs text-slate-500">Use Reschedule from the task controls to change its date or time.</p>
+          </div>
+        ) : (
+          <>
+            <DatePicker label="Date" value={draft.date} onChange={(date) => setDraft({ ...draft, date })} />
+            <div className="grid gap-4 sm:grid-cols-2"><TimeFields label="Start time" value={startTime} onChange={(time) => {
+              setStartTime(time)
+              setDurationErrorMessage('')
+              if (time !== endTime) setEqualTimeErrorMessage('')
+            }} errorMessage={startTimeInputErrorMessage} onValidationChange={setStartTimeInputErrorMessage} /><div><TimeFields label="End time" value={endTime} onChange={(time) => {
+              setEndTime(time)
+              setDurationErrorMessage('')
+              if (time !== startTime) setEqualTimeErrorMessage('')
+            }} errorMessage={endTimeInputErrorMessage || equalTimeErrorMessage} onValidationChange={setEndTimeInputErrorMessage} />{endDayOffset > 0 && <p className="mt-2 text-xs font-semibold text-[var(--accent-strong)]">Ends {endDayOffset === 1 ? 'the next day' : `in ${endDayOffset} days`}</p>}</div></div>
+            <AvailableTimeSection dateKey={draft.date} tasks={tasks} conflictingTasks={conflictingTasks} excludedTaskId={task?.id} />
+          </>
+        )}
+        <div><div className="rounded-2xl bg-[var(--accent-soft)] p-4 text-sm" aria-invalid={Boolean(durationErrorMessage)} aria-describedby={durationErrorMessage ? durationErrorId : undefined}><div className="flex items-center justify-between gap-4"><span className="font-bold text-[var(--accent-strong)]">Estimated duration</span><span className="font-black text-slate-800">{estimatedMinutes > 0 ? formatDuration(estimatedMinutes) : 'Choose different times'}</span></div><div className="mt-3 flex items-center justify-between gap-4 border-t border-[var(--accent)]/10 pt-3"><span className="font-bold text-[var(--accent-strong)]">Point potential</span><span className="font-black text-slate-800">{earnedPoints.toFixed(2)} / {maximumPoints.toFixed(2)} points</span></div>{task?.completionState === 'partial' && <p className="mt-2 text-xs text-slate-600">Partial progress remains at 50% of the estimated duration.</p>}</div>{durationErrorMessage && <p id={durationErrorId} className="mt-2 text-xs font-semibold text-red-700" role="alert">{durationErrorMessage}</p>}</div>
       </section>
       <section className="form-section">
         <div className="form-section-heading"><span>3</span><div><h3>Fine-tune it</h3><p>Add priority and an optional reminder preference.</p></div></div>

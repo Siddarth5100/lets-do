@@ -13,6 +13,8 @@ import { usePlanner } from './hooks/usePlanner'
 import type { Task, TaskDraft, ViewName } from './types/planner'
 import { getCurrentDate, toLocalDateKey } from './utils/dates'
 import { loadNavigationState, saveNavigationState } from './utils/storage'
+import { getPartialCompletedMinutes } from './utils/taskMetrics'
+import { canRescheduleTask } from './utils/taskTime'
 import { findOverlappingTasks, findSameDayDuplicateTasks, formatTaskTiming } from './utils/taskValidation'
 
 interface PendingTaskSave {
@@ -21,6 +23,8 @@ interface PendingTaskSave {
   duplicateNames: string[]
   overlappingTasks: Task[]
 }
+
+type TaskFormMode = 'add' | 'edit' | 'reschedule'
 
 export default function App() {
   const planner = usePlanner()
@@ -33,8 +37,11 @@ export default function App() {
   const { activeView, selectedDate } = navigationState
   const [formDate, setFormDate] = useState(today)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
+  const [taskFormMode, setTaskFormMode] = useState<TaskFormMode>('add')
   const [formOpen, setFormOpen] = useState(false)
   const [deletingTask, setDeletingTask] = useState<Task | null>(null)
+  const [pendingIncompleteTask, setPendingIncompleteTask] = useState<Task | null>(null)
+  const [rescheduleUnavailableTask, setRescheduleUnavailableTask] = useState<Task | null>(null)
   const [pendingTaskSave, setPendingTaskSave] = useState<PendingTaskSave | null>(null)
   const [pendingReopenTask, setPendingReopenTask] = useState<Task | null>(null)
   const [reviewMessage, setReviewMessage] = useState(false)
@@ -63,32 +70,67 @@ export default function App() {
   const openAdd = (date = today) => {
     setFormDate(date)
     setEditingTask(null)
+    setTaskFormMode('add')
     setFormOpen(true)
   }
 
   const openEdit = (task: Task) => {
     setEditingTask(task)
     setFormDate(task.date)
+    setTaskFormMode('edit')
     setFormOpen(true)
   }
 
-  const persistTask = (draft: TaskDraft, taskId: string | null) => {
-    if (taskId) planner.updateTask(taskId, draft)
-    else planner.addTask(draft)
+  const closeTaskForm = () => {
     setFormOpen(false)
     setEditingTask(null)
+    setTaskFormMode('add')
+  }
+
+  const requestTaskReschedule = (task: Task) => {
+    if (!canRescheduleTask(task.date, task.startTime)) {
+      setRescheduleUnavailableTask(task)
+      return
+    }
+    setEditingTask(task)
+    setFormDate(task.date)
+    setTaskFormMode('reschedule')
+    setFormOpen(true)
+  }
+
+  const rescheduleStillAllowed = (taskId: string | null): boolean => {
+    if (taskFormMode !== 'reschedule' || !taskId) return true
+    const originalTask = planner.state.tasks.find((task) => task.id === taskId)
+    if (originalTask && canRescheduleTask(originalTask.date, originalTask.startTime)) return true
+    if (originalTask) setRescheduleUnavailableTask(originalTask)
+    closeTaskForm()
+    return false
+  }
+
+  const persistTask = (draft: TaskDraft, taskId: string | null) => {
+    if (!rescheduleStillAllowed(taskId)) {
+      setPendingTaskSave(null)
+      return
+    }
+    if (taskId) planner.updateTask(taskId, draft)
+    else planner.addTask(draft)
     setPendingTaskSave(null)
+    closeTaskForm()
   }
 
   const saveTask = (draft: TaskDraft) => {
     const taskId = editingTask?.id ?? null
-    const duplicateNames = findSameDayDuplicateTasks(draft, planner.state.tasks, taskId ?? undefined).map((task) => task.title)
-    const overlappingTasks = findOverlappingTasks(draft, planner.state.tasks, taskId ?? undefined)
+    if (!rescheduleStillAllowed(taskId)) return
+    const draftToSave = taskFormMode === 'reschedule' && editingTask?.completionState === 'partial'
+      ? { ...draft, actualCompletedMinutes: getPartialCompletedMinutes(draft.plannedMinutes) }
+      : draft
+    const duplicateNames = findSameDayDuplicateTasks(draftToSave, planner.state.tasks, taskId ?? undefined).map((task) => task.title)
+    const overlappingTasks = findOverlappingTasks(draftToSave, planner.state.tasks, taskId ?? undefined)
     if (duplicateNames.length || overlappingTasks.length) {
-      setPendingTaskSave({ draft, taskId, duplicateNames, overlappingTasks })
+      setPendingTaskSave({ draft: draftToSave, taskId, duplicateNames, overlappingTasks })
       return
     }
-    persistTask(draft, taskId)
+    persistTask(draftToSave, taskId)
   }
 
   const confirmReview = () => {
@@ -114,8 +156,10 @@ export default function App() {
     onDelete: setDeletingTask,
     onToggleImportant: (task: Task) => planner.toggleImportant(task.id),
     onComplete: (task: Task) => planner.completeTask(task.id),
+    onPartial: (task: Task) => planner.toggleTaskPartial(task.id),
+    onMarkIncomplete: setPendingIncompleteTask,
     onReopen: requestTaskReopen,
-    onSetPartialProgress: (task: Task, minutes: number) => planner.setTaskProgress(task.id, minutes),
+    onReschedule: requestTaskReschedule,
   }
 
   return (
@@ -135,9 +179,11 @@ export default function App() {
         <BottomNavigation activeView={activeView} onNavigate={setActiveView} onAdd={() => openAdd()} />
       </div>
 
-      {formOpen && <Modal title={editingTask ? 'Edit task' : 'Add a task'} onClose={() => setFormOpen(false)}><TaskForm task={editingTask ?? undefined} defaultDate={formDate} tasks={planner.state.tasks} categories={availableCategories} onCreateCategory={planner.addCustomCategory} onSave={saveTask} onCancel={() => setFormOpen(false)} /></Modal>}
+      {formOpen && <Modal title={taskFormMode === 'reschedule' ? 'Reschedule task' : editingTask ? 'Edit task' : 'Add a task'} onClose={closeTaskForm}><TaskForm task={editingTask ?? undefined} defaultDate={formDate} tasks={planner.state.tasks} categories={availableCategories} onCreateCategory={planner.addCustomCategory} onSave={saveTask} onCancel={closeTaskForm} schedulingLocked={taskFormMode === 'edit'} /></Modal>}
       {pendingTaskSave && <Modal title="Review scheduling warnings" onClose={() => setPendingTaskSave(null)}><div className="space-y-5 p-6 sm:p-7"><p className="text-slate-600">You can still save this task, but please review the following first.</p>{pendingTaskSave.duplicateNames.length > 0 && <WarningList title="Duplicate task name" description="A task with the same normalized name already exists on this date." items={pendingTaskSave.duplicateNames} />}{pendingTaskSave.overlappingTasks.length > 0 && <WarningList title="Schedule overlap" description="This time overlaps with scheduled tasks." items={pendingTaskSave.overlappingTasks.map((task) => `${task.title} — ${formatTaskTiming(task)}`)} />}<div className="flex justify-end gap-3 border-t border-slate-100 pt-5"><button type="button" className="button-secondary" onClick={() => setPendingTaskSave(null)}>Go back</button><button type="button" className="button-primary" onClick={() => persistTask(pendingTaskSave.draft, pendingTaskSave.taskId)}>Save anyway</button></div></div></Modal>}
-      {pendingReopenTask && <Modal title="Review schedule overlap" onClose={() => setPendingReopenTask(null)}><div className="space-y-5 p-6 sm:p-7"><p className="text-slate-600">Reopening this task overlaps with the following scheduled tasks.</p><WarningList title="Schedule overlap" description="You can reopen it anyway or leave it completed." items={findOverlappingTasks({ ...pendingReopenTask, actualCompletedMinutes: 0 }, planner.state.tasks, pendingReopenTask.id).map((task) => `${task.title} — ${formatTaskTiming(task)}`)} /><div className="flex justify-end gap-3 border-t border-slate-100 pt-5"><button type="button" className="button-secondary" onClick={() => setPendingReopenTask(null)}>Keep completed</button><button type="button" className="button-primary" onClick={() => { planner.reopenTask(pendingReopenTask.id); setPendingReopenTask(null) }}>Reopen anyway</button></div></div></Modal>}
+      {pendingReopenTask && <Modal title="Review schedule overlap" onClose={() => setPendingReopenTask(null)}><div className="space-y-5 p-6 sm:p-7"><p className="text-slate-600">Reopening this task overlaps with the following scheduled tasks.</p><WarningList title="Schedule overlap" description="You can reopen it anyway or keep its current outcome." items={findOverlappingTasks({ ...pendingReopenTask, actualCompletedMinutes: 0 }, planner.state.tasks, pendingReopenTask.id).map((task) => `${task.title} — ${formatTaskTiming(task)}`)} /><div className="flex justify-end gap-3 border-t border-slate-100 pt-5"><button type="button" className="button-secondary" onClick={() => setPendingReopenTask(null)}>Keep outcome</button><button type="button" className="button-primary" onClick={() => { planner.reopenTask(pendingReopenTask.id); setPendingReopenTask(null) }}>Reopen anyway</button></div></div></Modal>}
+      {pendingIncompleteTask && <Modal title="Mark task incomplete?" onClose={() => setPendingIncompleteTask(null)}><div className="p-6 sm:p-7"><p className="text-slate-600">“{pendingIncompleteTask.title}” will move to Incomplete with zero progress and zero points.</p><div className="mt-6 flex justify-end gap-3"><button type="button" className="button-secondary" onClick={() => setPendingIncompleteTask(null)}>Go back</button><button type="button" className="rounded-xl bg-red-600 px-4 py-2.5 font-bold text-white hover:bg-red-700" onClick={() => { planner.markTaskIncomplete(pendingIncompleteTask.id); setPendingIncompleteTask(null) }}>Mark incomplete</button></div></div></Modal>}
+      {rescheduleUnavailableTask && <Modal title="Rescheduling unavailable" onClose={() => setRescheduleUnavailableTask(null)}><div className="p-6 sm:p-7"><p className="text-slate-600">“{rescheduleUnavailableTask.title}” can no longer be rescheduled. Changes must be saved before the one-hour cutoff preceding its original start time.</p><div className="mt-6 flex justify-end"><button type="button" className="button-primary" onClick={() => setRescheduleUnavailableTask(null)}>Understood</button></div></div></Modal>}
       {deletingTask && <Modal title="Delete task?" onClose={() => setDeletingTask(null)}><div className="p-6 sm:p-7"><p className="text-slate-600">“{deletingTask.title}” will be removed from this browser. Its completion event will be removed and the completion streak recalculated. Genuine planning activity history will remain.</p><div className="mt-6 flex justify-end gap-3"><button type="button" className="button-secondary" onClick={() => setDeletingTask(null)}>Keep task</button><button type="button" className="rounded-xl bg-red-600 px-4 py-2.5 font-bold text-white hover:bg-red-700" onClick={() => { planner.deleteTask(deletingTask.id); setDeletingTask(null) }}>Delete</button></div></div></Modal>}
       {reviewMessage && <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full bg-slate-900 px-5 py-3 text-sm font-bold text-white shadow-xl lg:bottom-8" role="status">Plan reviewed — activity recorded.</div>}
     </div>

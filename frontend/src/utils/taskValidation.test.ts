@@ -94,13 +94,14 @@ describe('daily task schedule', () => {
     ])
   })
 
-  it('merges overlapping allocations and includes completed tasks without double-counting time', () => {
+  it('merges overlapping allocations and includes completed and incomplete tasks without double-counting time', () => {
     const firstTask = { ...baseTask, id: 'first', date: '2026-10-22', startTime: '09:00', plannedMinutes: 120 }
     const completedTask = { ...baseTask, id: 'completed', date: '2026-10-22', startTime: '10:00', plannedMinutes: 120, completionState: 'completed' as const }
+    const incompleteTask = { ...baseTask, id: 'incomplete', date: '2026-10-22', startTime: '11:30', plannedMinutes: 60, completionState: 'incomplete' as const }
 
-    expect(getDailyTaskSchedule('2026-10-22', [firstTask, completedTask]).availableRanges).toEqual([
+    expect(getDailyTaskSchedule('2026-10-22', [firstTask, completedTask, incompleteTask]).availableRanges).toEqual([
       { startMinutes: 0, endMinutes: 540 },
-      { startMinutes: 720, endMinutes: 1440 },
+      { startMinutes: 750, endMinutes: 1440 },
     ])
   })
 

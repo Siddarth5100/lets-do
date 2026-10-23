@@ -44,6 +44,17 @@ describe('planner localStorage', () => {
     expect(parsed.settings).toEqual(state.settings)
   })
 
+  it('preserves an explicit incomplete outcome with zero progress', () => {
+    const incompleteState = {
+      ...state,
+      tasks: [{ ...task, actualCompletedMinutes: 0, completionState: 'incomplete' as const }],
+    }
+
+    const parsed = parsePlannerState(JSON.stringify(incompleteState))
+    expect(parsed.tasks[0].completionState).toBe('incomplete')
+    expect(parsed.tasks[0].actualCompletedMinutes).toBe(0)
+  })
+
   it('falls back safely for missing, corrupt, or unsupported data', () => {
     expect(parsePlannerState(null)).toEqual(defaultPlannerState)
     expect(parsePlannerState('{oops')).toEqual(defaultPlannerState)

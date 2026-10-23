@@ -1,4 +1,4 @@
-export type CompletionState = 'pending' | 'partial' | 'completed'
+export type CompletionState = 'pending' | 'partial' | 'completed' | 'incomplete'
 
 export interface ReminderSettings {
   enabled: boolean

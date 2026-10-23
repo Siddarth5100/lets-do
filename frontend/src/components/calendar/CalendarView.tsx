@@ -12,12 +12,14 @@ interface CalendarViewProps {
   onDelete: (task: Task) => void
   onToggleImportant: (task: Task) => void
   onComplete: (task: Task) => void
+  onPartial: (task: Task) => void
+  onMarkIncomplete: (task: Task) => void
   onReopen: (task: Task) => void
-  onSetPartialProgress: (task: Task, minutes: number) => void
+  onReschedule: (task: Task) => void
   onBackToToday: () => void
 }
 
-export function CalendarView({ initialDate, tasks, onAdd, onEdit, onDelete, onToggleImportant, onComplete, onReopen, onSetPartialProgress, onBackToToday }: CalendarViewProps) {
+export function CalendarView({ initialDate, tasks, onAdd, onEdit, onDelete, onToggleImportant, onComplete, onPartial, onMarkIncomplete, onReopen, onReschedule, onBackToToday }: CalendarViewProps) {
   const initialSelectedDate = fromLocalDateKey(initialDate) ?? fromLocalDateKey('2000-01-01')!
   const [month, setMonth] = useState(() => new Date(initialSelectedDate.getFullYear(), initialSelectedDate.getMonth(), 1))
   const [selectedDate, setSelectedDate] = useState(initialDate)
@@ -48,7 +50,7 @@ export function CalendarView({ initialDate, tasks, onAdd, onEdit, onDelete, onTo
         </section>
         <section>
           <div className="mb-4 flex items-end justify-between"><div><p className="text-xs font-black uppercase tracking-wider text-[var(--accent-strong)]">Selected day</p><h2 className="mt-1 text-xl font-black text-slate-900">{formatLongDate(selectedDate)}</h2></div><button type="button" className="button-primary" onClick={() => onAdd(selectedDate)}><Icon name="plus" className="size-4" />Add</button></div>
-          {selectedTasks.length ? <div className="space-y-2">{selectedTasks.map((task) => <TaskItem key={task.id} task={task} onEdit={() => onEdit(task)} onDelete={() => onDelete(task)} onToggleImportant={() => onToggleImportant(task)} onComplete={() => onComplete(task)} onReopen={() => onReopen(task)} onSetPartialProgress={(minutes) => onSetPartialProgress(task, minutes)} />)}</div> : <div className="panel px-6 py-12 text-center"><p className="font-bold text-slate-700">No plans for this date</p><p className="mt-1 text-sm text-slate-500">An empty day is not automatically a rest day.</p></div>}
+          {selectedTasks.length ? <div className="space-y-2">{selectedTasks.map((task) => <TaskItem key={task.id} task={task} onEdit={() => onEdit(task)} onDelete={() => onDelete(task)} onToggleImportant={() => onToggleImportant(task)} onComplete={() => onComplete(task)} onPartial={() => onPartial(task)} onMarkIncomplete={() => onMarkIncomplete(task)} onReopen={() => onReopen(task)} onReschedule={() => onReschedule(task)} />)}</div> : <div className="panel px-6 py-12 text-center"><p className="font-bold text-slate-700">No plans for this date</p><p className="mt-1 text-sm text-slate-500">An empty day is not automatically a rest day.</p></div>}
         </section>
       </div>
     </div>

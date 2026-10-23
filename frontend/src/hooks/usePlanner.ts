@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { CompletionEvent, PlannerSettings, PlannerState, Task, TaskDraft } from '../types/planner'
 import { toLocalDateKey } from '../utils/dates'
-import { getCompletionState, removeTaskCompletionEvents, shouldRecordCompletion } from '../utils/taskMetrics'
+import { getCompletionState, getPartialCompletedMinutes, removeTaskCompletionEvents, shouldRecordCompletion } from '../utils/taskMetrics'
 import { defaultPlannerState, loadPlannerState, savePlannerState } from '../utils/storage'
 
 function unique(values: string[]): string[] {
@@ -61,7 +61,9 @@ export function usePlanner() {
     const timestamp = now.toISOString()
     setState((current) => {
       const previousTask = current.tasks.find((task) => task.id === id)
-      const nextCompletionState = getCompletionState(draft.actualCompletedMinutes, draft.plannedMinutes)
+      const nextCompletionState = previousTask?.completionState === 'incomplete' && draft.actualCompletedMinutes === 0
+        ? 'incomplete'
+        : getCompletionState(draft.actualCompletedMinutes, draft.plannedMinutes)
       const newlyCompleted = Boolean(previousTask) && previousTask?.completionState !== 'completed' && nextCompletionState === 'completed'
       const reopened = previousTask?.completionState === 'completed' && nextCompletionState !== 'completed'
       const newCompletionTimestamp = newlyCompleted && shouldRecordCompletion(draft.date, now) ? timestamp : null
@@ -101,10 +103,53 @@ export function usePlanner() {
     updateTask(id, { ...task, actualCompletedMinutes: task.plannedMinutes }, now)
   }
 
-  const reopenTask = (id: string, now = new Date()) => {
+  const toggleTaskPartial = (id: string, now = new Date()) => {
     const task = state.tasks.find((item) => item.id === id)
     if (!task) return
-    updateTask(id, { ...task, actualCompletedMinutes: 0 }, now)
+    const actualCompletedMinutes = task.completionState === 'partial'
+      ? 0
+      : getPartialCompletedMinutes(task.plannedMinutes)
+    updateTask(id, { ...task, actualCompletedMinutes }, now)
+  }
+
+  const markTaskIncomplete = (id: string, now = new Date()) => {
+    const timestamp = now.toISOString()
+    setState((current) => {
+      const taskExists = current.tasks.some((task) => task.id === id)
+      if (!taskExists) return current
+      const withActivity = recordActivity(current, now)
+      return {
+        ...withActivity,
+        tasks: withActivity.tasks.map((task) => task.id === id ? {
+          ...task,
+          actualCompletedMinutes: 0,
+          completionState: 'incomplete',
+          completedAt: null,
+          updatedAt: timestamp,
+        } : task),
+        completionEvents: removeTaskCompletionEvents(withActivity.completionEvents, id),
+      }
+    })
+  }
+
+  const reopenTask = (id: string, now = new Date()) => {
+    const timestamp = now.toISOString()
+    setState((current) => {
+      const taskExists = current.tasks.some((task) => task.id === id)
+      if (!taskExists) return current
+      const withActivity = recordActivity(current, now)
+      return {
+        ...withActivity,
+        tasks: withActivity.tasks.map((task) => task.id === id ? {
+          ...task,
+          actualCompletedMinutes: 0,
+          completionState: 'pending',
+          completedAt: null,
+          updatedAt: timestamp,
+        } : task),
+        completionEvents: removeTaskCompletionEvents(withActivity.completionEvents, id),
+      }
+    })
   }
 
   const toggleImportant = (id: string, now = new Date()) => {
@@ -147,6 +192,8 @@ export function usePlanner() {
     updateTask,
     setTaskProgress,
     completeTask,
+    toggleTaskPartial,
+    markTaskIncomplete,
     reopenTask,
     toggleImportant,
     deleteTask,

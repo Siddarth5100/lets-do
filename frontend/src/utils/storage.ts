@@ -44,11 +44,13 @@ function normalizeSettings(value: unknown): PlannerState['settings'] {
 }
 
 function normalizeTasks(tasks: Task[]): Task[] {
-  return tasks.map((task) => ({
-    ...task,
-    actualCompletedMinutes: Math.max(0, task.actualCompletedMinutes),
-    completionState: getCompletionState(task.actualCompletedMinutes, task.plannedMinutes),
-  }))
+  return tasks.map((task) => {
+    const actualCompletedMinutes = Math.max(0, task.actualCompletedMinutes)
+    const completionState = task.completionState === 'incomplete' && actualCompletedMinutes === 0
+      ? 'incomplete'
+      : getCompletionState(actualCompletedMinutes, task.plannedMinutes)
+    return { ...task, actualCompletedMinutes, completionState }
+  })
 }
 
 function migrateCompletionEvents(tasks: Task[], timestamps: string[]): CompletionEvent[] {

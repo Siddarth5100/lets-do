@@ -1,4 +1,13 @@
+import { fromLocalDateKey } from './dates'
+
 export const MINUTES_PER_DAY = 24 * 60
+const RESCHEDULE_CUTOFF_MINUTES = 60
+
+export interface TaskScheduleTimestamps {
+  scheduledStart: number
+  scheduledEnd: number
+  rescheduleCutoff: number
+}
 
 export interface DerivedEndTime {
   endTime: string
@@ -61,4 +70,36 @@ export function getEndDayOffset(startTime: string, endTime: string): number {
   const startMinutes = parseTimeToMinutes(startTime)
   const endMinutes = parseTimeToMinutes(endTime)
   return startMinutes !== null && endMinutes !== null && endMinutes < startMinutes ? 1 : 0
+}
+
+export function canRescheduleTask(taskDate: string, startTime: string, currentTime = new Date()): boolean {
+  const scheduleTimestamps = getTaskScheduleTimestamps(taskDate, startTime, 1)
+  if (!scheduleTimestamps || Number.isNaN(currentTime.getTime())) return false
+  return currentTime.getTime() < scheduleTimestamps.rescheduleCutoff
+}
+
+export function hasTaskScheduledEndPassed(taskDate: string, startTime: string, plannedMinutes: number, currentTime = new Date()): boolean {
+  const scheduleTimestamps = getTaskScheduleTimestamps(taskDate, startTime, plannedMinutes)
+  if (!scheduleTimestamps || Number.isNaN(currentTime.getTime())) return false
+  return currentTime.getTime() >= scheduleTimestamps.scheduledEnd
+}
+
+export function getTaskScheduleTimestamps(taskDate: string, startTime: string, plannedMinutes: number): TaskScheduleTimestamps | null {
+  const taskDateValue = fromLocalDateKey(taskDate)
+  const startMinutes = parseTimeToMinutes(startTime)
+  if (!taskDateValue || startMinutes === null || !Number.isFinite(plannedMinutes) || plannedMinutes <= 0) return null
+
+  const scheduledStart = new Date(
+    taskDateValue.getFullYear(),
+    taskDateValue.getMonth(),
+    taskDateValue.getDate(),
+    Math.floor(startMinutes / 60),
+    startMinutes % 60,
+  )
+  const scheduledStartTimestamp = scheduledStart.getTime()
+  return {
+    scheduledStart: scheduledStartTimestamp,
+    scheduledEnd: scheduledStartTimestamp + plannedMinutes * 60_000,
+    rescheduleCutoff: scheduledStartTimestamp - RESCHEDULE_CUTOFF_MINUTES * 60_000,
+  }
 }

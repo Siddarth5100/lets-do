@@ -30,6 +30,11 @@ export function getEarnedPoints(actualMinutes: number, plannedMinutes: number): 
   return getMaxPoints(plannedMinutes) * (completedMinutes / plannedMinutes)
 }
 
+export function getPartialCompletedMinutes(plannedMinutes: number): number {
+  validatePlannedMinutes(plannedMinutes)
+  return plannedMinutes / 2
+}
+
 export function getTaskProgress(actualMinutes: number, plannedMinutes: number): number {
   const maximumPoints = getMaxPoints(plannedMinutes)
   return getEarnedPoints(actualMinutes, plannedMinutes) / maximumPoints

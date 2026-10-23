@@ -6,6 +6,7 @@ import {
   getCurrentStreak,
   getEarnedPoints,
   getMaxPoints,
+  getPartialCompletedMinutes,
   getTaskProgress,
   shouldRecordCompletion,
   removeTaskCompletionEvents,
@@ -28,6 +29,13 @@ describe('duration-weighted points', () => {
 })
 
 describe('partial completion', () => {
+  it('records exactly half of the planned duration', () => {
+    expect(getPartialCompletedMinutes(60)).toBe(30)
+    expect(getPartialCompletedMinutes(45)).toBe(22.5)
+    expect(getTaskProgress(getPartialCompletedMinutes(45), 45)).toBe(0.5)
+    expect(getEarnedPoints(getPartialCompletedMinutes(90), 90)).toBe(0.75)
+  })
+
   it('calculates the agreed partial score', () => {
     expect(getEarnedPoints(150, 180)).toBe(2.5)
     expect(getTaskProgress(150, 180)).toBeCloseTo(5 / 6)
