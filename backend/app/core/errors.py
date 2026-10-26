@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -11,11 +12,19 @@ logger = logging.getLogger(__name__)
 
 
 class ApplicationError(Exception):
-    def __init__(self, *, status_code: int, code: str, message: str) -> None:
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        code: str,
+        message: str,
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
+        self.headers = dict(headers or {})
 
 
 class DatabaseUnavailableError(ApplicationError):
@@ -27,18 +36,62 @@ class DatabaseUnavailableError(ApplicationError):
         )
 
 
+class AuthenticationRequiredError(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=401,
+            code="authentication_required",
+            message="Authentication is required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+class InvalidTokenError(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=401,
+            code="invalid_token",
+            message="The access token is invalid.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+class TokenExpiredError(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=401,
+            code="token_expired",
+            message="The access token has expired.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+class AuthenticationServiceUnavailableError(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=503,
+            code="authentication_service_unavailable",
+            message="Authentication key verification is temporarily unavailable.",
+        )
+
+
 def create_error_response(
     *,
     status_code: int,
     code: str,
     message: str,
     details: Any | None = None,
+    headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     error_body: dict[str, Any] = {"code": code, "message": message}
     if details is not None:
         error_body["details"] = details
 
-    return JSONResponse(status_code=status_code, content={"error": error_body})
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": error_body},
+        headers=headers,
+    )
 
 
 async def handle_application_error(
@@ -49,6 +102,7 @@ async def handle_application_error(
         status_code=error.status_code,
         code=error.code,
         message=error.message,
+        headers=error.headers,
     )
 
 

@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     app_environment: Literal["development", "test", "production"] = "development"
     app_debug: bool = False
     database_url: str
+    supabase_url: AnyHttpUrl
+    supabase_jwt_audience: str = "authenticated"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -25,6 +27,21 @@ class Settings(BaseSettings):
         if not database_url.startswith("postgresql+psycopg://"):
             raise ValueError("DATABASE_URL must use PostgreSQL with the psycopg driver")
         return database_url
+
+    @field_validator("supabase_jwt_audience")
+    @classmethod
+    def validate_supabase_jwt_audience(cls, audience: str) -> str:
+        if not audience.strip():
+            raise ValueError("SUPABASE_JWT_AUDIENCE must not be empty")
+        return audience
+
+    @property
+    def supabase_auth_issuer(self) -> str:
+        return f"{str(self.supabase_url).rstrip('/')}/auth/v1"
+
+    @property
+    def supabase_jwks_url(self) -> str:
+        return f"{self.supabase_auth_issuer}/.well-known/jwks.json"
 
 
 @lru_cache

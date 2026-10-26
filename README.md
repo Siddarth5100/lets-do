@@ -48,9 +48,9 @@ npm run build
 
 See [frontend/README.md](frontend/README.md) for the architecture, commands, business rules, storage behavior, and current limitations.
 
-## Backend Foundation
+## Backend
 
-The backend currently provides application and database health checks, environment-based configuration, SQLAlchemy session management, Alembic migration infrastructure, and structured API errors. Authentication, planner tables, task APIs, and frontend integration are intentionally deferred.
+The backend provides application and database health checks, environment-based configuration, async SQLAlchemy session management, Alembic migration infrastructure, structured API errors, and Supabase access-token verification. Planner tables, task APIs, and frontend integration remain deferred.
 
 Prerequisites:
 
@@ -67,7 +67,13 @@ python -m pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-Set `DATABASE_URL` in `.env` to the PostgreSQL connection string supplied by your database provider. The application accepts both `postgresql://` and `postgresql+psycopg://` URLs and uses the psycopg driver. Do not commit `.env` or database credentials.
+Set these values in `.env`:
+
+- `DATABASE_URL`: the PostgreSQL connection string supplied by Supabase. The application accepts both `postgresql://` and `postgresql+psycopg://` URLs and uses the psycopg driver.
+- `SUPABASE_URL`: the public project URL, such as `https://your-project-reference.supabase.co`.
+- `SUPABASE_JWT_AUDIENCE`: normally `authenticated`.
+
+The Supabase project must use an active ES256 asymmetric signing key. The backend reads public verification keys from the project's JWKS endpoint; no JWT secret or service-role key is required. Do not commit `.env` or database credentials.
 
 Start the API:
 
@@ -81,6 +87,15 @@ Available health endpoints:
 - `GET /health` checks that the API process is responding.
 - `GET /health/database` executes `SELECT 1` against PostgreSQL and returns HTTP 503 if the database cannot be reached.
 
+The protected identity endpoint accepts a Supabase access token:
+
+```bash
+curl http://localhost:8000/api/v1/auth/me \
+  -H "Authorization: Bearer <supabase-access-token>"
+```
+
+It verifies the ES256 signature, issuer, audience, expiration, token type, authenticated role, and user UUID before returning limited identity information. The health endpoints remain public.
+
 Run backend checks from `backend/`:
 
 ```bash
@@ -88,8 +103,8 @@ pytest
 ruff check app tests
 ```
 
-Alembic is configured but contains no application-table migrations yet. A reachable database is required for Alembic commands and the live database health endpoint; automated tests use a substituted database session and do not require Supabase credentials.
+Alembic is configured but contains no application-table migrations yet. A reachable database is required for Alembic commands and the live database health endpoint. Automated tests use substituted database and signing-key providers, generate temporary ES256 keys in memory, and do not require Supabase credentials or network access.
 
 ## Planned Beyond v1
 
-Supabase authentication, planner database models and APIs, frontend integration, cross-device synchronization, recurring routines, rest days, and real notification delivery remain future work.
+React authentication flows, planner database models and APIs, frontend integration, cross-device synchronization, recurring routines, rest days, and real notification delivery remain future work.
