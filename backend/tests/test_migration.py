@@ -6,12 +6,13 @@ from types import ModuleType
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 
-MIGRATION_FILENAME = "20261026_01_create_planner_tables.py"
-MIGRATION_PATH = Path(__file__).parents[1] / "alembic" / "versions" / MIGRATION_FILENAME
+MIGRATION_DIRECTORY = Path(__file__).parents[1] / "alembic" / "versions"
+INITIAL_MIGRATION_PATH = MIGRATION_DIRECTORY / "20261026_01_create_planner_tables.py"
+REMOVE_DAILY_CAPACITY_MIGRATION_PATH = MIGRATION_DIRECTORY / "20261027_01_remove_daily_capacity.py"
 
 
-def load_migration() -> ModuleType:
-    module_spec = spec_from_file_location("planner_schema_migration", MIGRATION_PATH)
+def load_migration(migration_path: Path) -> ModuleType:
+    module_spec = spec_from_file_location("planner_schema_migration", migration_path)
     if module_spec is None or module_spec.loader is None:
         raise RuntimeError("Could not load planner schema migration")
 
@@ -20,13 +21,13 @@ def load_migration() -> ModuleType:
     return migration
 
 
-def render_migration_sql(direction: str) -> str:
+def render_migration_sql(direction: str, migration_path: Path = INITIAL_MIGRATION_PATH) -> str:
     output = StringIO()
     migration_context = MigrationContext.configure(
         dialect_name="postgresql",
         opts={"as_sql": True, "output_buffer": output},
     )
-    migration = load_migration()
+    migration = load_migration(migration_path)
     migration.op = Operations(migration_context)
     getattr(migration, direction)()
     return output.getvalue()
@@ -72,3 +73,19 @@ def test_downgrade_drops_only_planner_tables_in_dependency_order() -> None:
 
     assert drop_positions == sorted(drop_positions)
     assert "DROP TABLE auth.users" not in migration_sql
+
+
+def test_daily_capacity_removal_migration_is_reversible() -> None:
+    upgrade_sql = render_migration_sql("upgrade", REMOVE_DAILY_CAPACITY_MIGRATION_PATH)
+    downgrade_sql = render_migration_sql("downgrade", REMOVE_DAILY_CAPACITY_MIGRATION_PATH)
+
+    assert (
+        "ALTER TABLE public.user_settings "
+        "DROP CONSTRAINT ck_user_settings_daily_capacity_minutes_range" in upgrade_sql
+    )
+    assert "ALTER TABLE public.user_settings DROP COLUMN daily_capacity_minutes" in upgrade_sql
+    assert "ADD COLUMN daily_capacity_minutes SMALLINT DEFAULT 480 NOT NULL" in downgrade_sql
+    assert (
+        "ADD CONSTRAINT ck_user_settings_daily_capacity_minutes_range "
+        "CHECK (daily_capacity_minutes BETWEEN 1 AND 1440)" in downgrade_sql
+    )

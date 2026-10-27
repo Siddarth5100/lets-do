@@ -240,7 +240,6 @@ export default function App() {
               <TodayView
                 dateKey={today}
                 tasks={todayTasks}
-                availableHours={planner.state.settings.availableHours}
                 activityDates={planner.state.activityDates}
                 completionEvents={planner.state.completionEvents}
                 onAdd={() => openNewTaskForm()}

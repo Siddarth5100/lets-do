@@ -56,10 +56,6 @@ class TimestampMixin:
 class UserSettings(TimestampMixin, Base):
     __tablename__ = "user_settings"
     __table_args__ = (
-        CheckConstraint(
-            "daily_capacity_minutes BETWEEN 1 AND 1440",
-            name="daily_capacity_minutes_range",
-        ),
         CheckConstraint("btrim(time_zone) <> ''", name="time_zone_not_blank"),
         CheckConstraint(
             "manual_theme_id IS NULL OR manual_theme_id IN "
@@ -73,11 +69,6 @@ class UserSettings(TimestampMixin, Base):
         PostgreSQLUuid(as_uuid=True),
         ForeignKey(supabase_auth_users.c.id, ondelete="CASCADE"),
         primary_key=True,
-    )
-    daily_capacity_minutes: Mapped[int] = mapped_column(
-        SmallInteger,
-        nullable=False,
-        server_default=text("480"),
     )
     manual_theme_id: Mapped[str | None] = mapped_column(String(16))
     sidebar_collapsed: Mapped[bool] = mapped_column(

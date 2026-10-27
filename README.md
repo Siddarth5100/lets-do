@@ -10,7 +10,7 @@ Let's Do is a responsive daily planner for scheduling tasks, tracking meaningful
 - Calendar and Review Plan views for inspecting scheduled days
 - Task creation, editing, deletion, outcomes, importance, categories, and rescheduling
 - Duration-weighted scoring and explicit activity/completion history
-- Seven weekday themes, daily capacity, and responsive desktop/mobile navigation
+- Seven weekday themes and responsive desktop/mobile navigation
 - Versioned browser persistence with no account required
 
 ## Repository Structure

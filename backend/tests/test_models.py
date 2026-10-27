@@ -39,6 +39,15 @@ def test_metadata_contains_only_the_five_planner_models_and_external_auth_users(
     } == PLANNER_TABLE_NAMES
 
 
+def test_user_settings_does_not_store_a_fixed_daily_capacity() -> None:
+    settings_table = UserSettings.__table__
+
+    assert "daily_capacity_minutes" not in settings_table.c
+    assert "ck_user_settings_daily_capacity_minutes_range" not in {
+        constraint.name for constraint in settings_table.constraints
+    }
+
+
 def test_task_model_preserves_local_schedule_and_fractional_progress() -> None:
     task_table = Task.__table__
 

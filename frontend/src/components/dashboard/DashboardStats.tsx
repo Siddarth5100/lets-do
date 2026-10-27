@@ -6,12 +6,11 @@ import { Icon } from '../ui/Icon'
 
 interface DashboardStatsProps {
   tasks: Task[]
-  availableHours: number
   activityDates: string[]
   completionEvents: CompletionEvent[]
 }
 
-export function DashboardStats({ tasks, availableHours, activityDates, completionEvents }: DashboardStatsProps) {
+export function DashboardStats({ tasks, activityDates, completionEvents }: DashboardStatsProps) {
   const [currentTime, setCurrentTime] = useState(() => new Date())
   const totals = getTaskTotals(tasks)
   const progressPercentage = totals.maxPoints ? Math.round((totals.earnedPoints / totals.maxPoints) * 100) : 0
@@ -30,7 +29,7 @@ export function DashboardStats({ tasks, availableHours, activityDates, completio
       <TimeRemainingCard
         timeRemaining={timeRemaining}
         currentTime={currentTime}
-        detail={`${availableHours}h daily capacity · ${scheduledHours.toFixed(1)}h estimated`}
+        detail={`${scheduledHours.toFixed(1)}h planned from tasks`}
       />
       <StatCard label="Progress" value={`${progressPercentage}%`} detail={`${totals.earnedPoints.toFixed(2)} of ${totals.maxPoints.toFixed(2)} pts`} icon="check" />
       <StatCard label="Activity streak" value={`${activityStreak} ${activityStreak === 1 ? 'day' : 'days'}`} detail="Plan actions" icon="flame" />

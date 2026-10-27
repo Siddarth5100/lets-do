@@ -34,7 +34,7 @@ const state: PlannerState = {
   activityDates: ['2026-10-21'],
   completionEvents: [],
   customCategories: ['Deep work'],
-  settings: { availableHours: 6, manualThemeId: 'wednesday', sidebarCollapsed: true },
+  settings: { manualThemeId: 'wednesday', sidebarCollapsed: true },
 }
 
 describe('planner localStorage', () => {
@@ -53,6 +53,19 @@ describe('planner localStorage', () => {
     const parsed = parsePlannerState(JSON.stringify(incompleteState))
     expect(parsed.tasks[0].completionState).toBe('incomplete')
     expect(parsed.tasks[0].actualCompletedMinutes).toBe(0)
+  })
+
+  it('ignores the removed daily capacity without discarding stored planner data', () => {
+    const previousState = {
+      ...state,
+      settings: { ...state.settings, availableHours: 6 },
+    }
+
+    const parsed = parsePlannerState(JSON.stringify(previousState))
+
+    expect(parsed.tasks).toEqual([{ ...task, completionState: 'partial' }])
+    expect(parsed.settings).toEqual(state.settings)
+    expect('availableHours' in parsed.settings).toBe(false)
   })
 
   it('falls back safely for missing, corrupt, or unsupported data', () => {
@@ -76,6 +89,7 @@ describe('planner localStorage', () => {
     expect(migrated.completionEvents).toHaveLength(2)
     expect(migrated.completionEvents[0].taskId).toBe(task.id)
     expect(migrated.completionEvents[1].taskId).toBeNull()
+    expect(migrated.settings.manualThemeId).toBeNull()
     expect(migrated.settings.sidebarCollapsed).toBe(false)
   })
 

@@ -15,7 +15,6 @@ import { Icon } from '../ui/Icon'
 interface TodayViewProps extends TaskActionCallbacks {
   dateKey: string
   tasks: Task[]
-  availableHours: number
   activityDates: string[]
   completionEvents: CompletionEvent[]
   onAdd: () => void
@@ -105,7 +104,6 @@ export function TodayView(props: TodayViewProps) {
 
       <DashboardStats
         tasks={props.tasks}
-        availableHours={props.availableHours}
         activityDates={props.activityDates}
         completionEvents={props.completionEvents}
       />
