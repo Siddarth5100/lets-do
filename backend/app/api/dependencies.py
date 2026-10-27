@@ -1,8 +1,11 @@
+from collections.abc import AsyncGenerator
 from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.errors import AuthenticationRequiredError
@@ -11,6 +14,7 @@ from app.core.security import (
     SupabaseJwtVerifier,
     SupabaseSigningKeyProvider,
 )
+from app.db.session import get_database_session
 
 bearer_security = HTTPBearer(auto_error=False)
 
@@ -43,3 +47,22 @@ async def get_authenticated_user(
         raise AuthenticationRequiredError
 
     return await jwt_verifier.verify(credentials.credentials)
+
+
+async def get_authenticated_database_session(
+    authenticated_user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
+    database_session: Annotated[AsyncSession, Depends(get_database_session)],
+) -> AsyncGenerator[AsyncSession, None]:
+    try:
+        # The first statement starts the transaction, and the local setting is cleared
+        # automatically when that transaction commits or rolls back.
+        await database_session.execute(
+            text("SELECT set_config('app.current_user_id', :user_id, true)"),
+            {"user_id": str(authenticated_user.user_id)},
+        )
+        yield database_session
+    except Exception:
+        await database_session.rollback()
+        raise
+    else:
+        await database_session.commit()

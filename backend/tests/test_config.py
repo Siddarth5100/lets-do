@@ -29,7 +29,9 @@ def test_settings_normalizes_migration_database_url() -> None:
 
 def test_settings_requires_separate_migration_database_url_for_alembic() -> None:
     settings = Settings(
-        database_url="postgresql+psycopg://runtime:password@localhost:5432/database"
+        database_url="postgresql+psycopg://runtime:password@localhost:5432/database",
+        supabase_url="https://example-project.supabase.co",
+        _env_file=None,
     )
 
     with pytest.raises(RuntimeError, match="MIGRATION_DATABASE_URL"):
