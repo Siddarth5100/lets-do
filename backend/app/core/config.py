@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     app_environment: Literal["development", "test", "production"] = "development"
     app_debug: bool = False
     database_url: str
+    migration_database_url: str | None = None
     supabase_url: AnyHttpUrl
     supabase_jwt_audience: str = "authenticated"
 
@@ -19,14 +20,21 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("database_url")
+    @field_validator("database_url", "migration_database_url")
     @classmethod
-    def validate_database_url(cls, database_url: str) -> str:
+    def validate_database_url(cls, database_url: str | None) -> str | None:
+        if database_url is None:
+            return None
         if database_url.startswith("postgresql://"):
             return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
         if not database_url.startswith("postgresql+psycopg://"):
-            raise ValueError("DATABASE_URL must use PostgreSQL with the psycopg driver")
+            raise ValueError("Database URLs must use PostgreSQL with the psycopg driver")
         return database_url
+
+    def require_migration_database_url(self) -> str:
+        if self.migration_database_url is None:
+            raise RuntimeError("MIGRATION_DATABASE_URL is required for Alembic commands")
+        return self.migration_database_url
 
     @field_validator("supabase_jwt_audience")
     @classmethod

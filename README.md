@@ -69,11 +69,26 @@ cp .env.example .env
 
 Set these values in `.env`:
 
-- `DATABASE_URL`: the PostgreSQL connection string supplied by Supabase. The application accepts both `postgresql://` and `postgresql+psycopg://` URLs and uses the psycopg driver.
+- `DATABASE_URL`: the restricted FastAPI runtime connection for the manually created `lets_do_api` role.
+- `MIGRATION_DATABASE_URL`: a privileged direct or session connection used only by Alembic.
 - `SUPABASE_URL`: the public project URL, such as `https://your-project-reference.supabase.co`.
 - `SUPABASE_JWT_AUDIENCE`: normally `authenticated`.
 
 The Supabase project must use an active ES256 asymmetric signing key. The backend reads public verification keys from the project's JWKS endpoint; no JWT secret or service-role key is required. Do not commit `.env` or database credentials.
+
+Before applying planner migrations, create the `lets_do_api` role manually as a login role
+with `NOINHERIT`, `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOREPLICATION`, and
+`NOBYPASSRLS`.
+The role must not own planner tables or inherit from the migration owner. Apply these shared-schema
+permissions separately as an administrator; Alembic intentionally does not manage them:
+
+```sql
+REVOKE CREATE ON SCHEMA public FROM lets_do_api;
+GRANT USAGE ON SCHEMA public TO lets_do_api;
+```
+
+The planner migration grants table-level access to this role and enables per-user RLS. Create the
+role before running Alembic, and never start FastAPI with the privileged migration connection.
 
 Start the API:
 
@@ -103,7 +118,7 @@ pytest
 ruff check app tests
 ```
 
-Alembic is configured but contains no application-table migrations yet. A reachable database is required for Alembic commands and the live database health endpoint. Automated tests use substituted database and signing-key providers, generate temporary ES256 keys in memory, and do not require Supabase credentials or network access.
+Alembic contains the initial planner-table migration. A reachable database is required for Alembic commands and the live database health endpoint. Automated tests compile the migration as PostgreSQL SQL, use substituted database and signing-key providers, generate temporary ES256 keys in memory, and do not require Supabase credentials or network access.
 
 ## Planned Beyond v1
 

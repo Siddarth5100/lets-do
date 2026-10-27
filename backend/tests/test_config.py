@@ -16,9 +16,37 @@ def test_settings_normalizes_standard_postgresql_url() -> None:
     assert settings.database_url.startswith("postgresql+psycopg://")
 
 
+def test_settings_normalizes_migration_database_url() -> None:
+    settings = Settings(
+        database_url="postgresql+psycopg://runtime:password@localhost:5432/database",
+        migration_database_url="postgresql://owner:password@localhost:5432/database",
+    )
+
+    assert settings.migration_database_url == (
+        "postgresql+psycopg://owner:password@localhost:5432/database"
+    )
+
+
+def test_settings_requires_separate_migration_database_url_for_alembic() -> None:
+    settings = Settings(
+        database_url="postgresql+psycopg://runtime:password@localhost:5432/database"
+    )
+
+    with pytest.raises(RuntimeError, match="MIGRATION_DATABASE_URL"):
+        settings.require_migration_database_url()
+
+
 def test_settings_reject_non_postgresql_url() -> None:
     with pytest.raises(ValidationError):
         Settings(database_url="sqlite:///temporary.db")
+
+
+def test_settings_rejects_non_postgresql_migration_url() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            database_url="postgresql+psycopg://runtime:password@localhost:5432/database",
+            migration_database_url="sqlite:///temporary.db",
+        )
 
 
 def test_settings_derives_supabase_auth_urls() -> None:
