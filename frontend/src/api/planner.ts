@@ -107,8 +107,8 @@ export class PlannerApi {
     this.client = client
   }
 
-  async getTasks(): Promise<Task[]> {
-    const response = await this.client.request<unknown>('/v1/tasks')
+  async getTasks(signal?: AbortSignal): Promise<Task[]> {
+    const response = await this.client.request<unknown>('/v1/tasks', { signal })
     return requireArray(response, 'tasks').map(mapTaskResponse)
   }
 
@@ -182,13 +182,13 @@ export class PlannerApi {
     )
   }
 
-  async getCategories(): Promise<TaskCategory[]> {
-    const response = await this.client.request<unknown>('/v1/categories')
+  async getCategories(signal?: AbortSignal): Promise<TaskCategory[]> {
+    const response = await this.client.request<unknown>('/v1/categories', { signal })
     return requireArray(response, 'categories').map(mapCategoryResponse)
   }
 
-  async createCategory(name: string): Promise<TaskCategory> {
-    return mapCategoryResponse(await this.requestJson('/v1/categories', 'POST', { name }))
+  async createCategory(name: string, signal?: AbortSignal): Promise<TaskCategory> {
+    return mapCategoryResponse(await this.requestJson('/v1/categories', 'POST', { name }, signal))
   }
 
   async updateCategory(categoryId: string, name: string): Promise<TaskCategory> {
@@ -205,8 +205,8 @@ export class PlannerApi {
     })
   }
 
-  async getSettings(): Promise<PlannerSettings> {
-    return mapSettingsResponse(await this.client.request<unknown>('/v1/settings'))
+  async getSettings(signal?: AbortSignal): Promise<PlannerSettings> {
+    return mapSettingsResponse(await this.client.request<unknown>('/v1/settings', { signal }))
   }
 
   async updateSettings(settings: Required<PlannerSettings>): Promise<PlannerSettings> {
@@ -218,8 +218,8 @@ export class PlannerApi {
     return mapSettingsResponse(await this.requestJson('/v1/settings', 'PUT', body))
   }
 
-  async getActivity(): Promise<ActivityHistory> {
-    return mapActivityResponse(await this.client.request<unknown>('/v1/activity'))
+  async getActivity(signal?: AbortSignal): Promise<ActivityHistory> {
+    return mapActivityResponse(await this.client.request<unknown>('/v1/activity', { signal }))
   }
 
   async confirmReview(timeZone: string): Promise<ReviewConfirmation> {
@@ -228,10 +228,16 @@ export class PlannerApi {
     }))
   }
 
-  private requestJson(path: string, method: string, body: unknown): Promise<unknown> {
+  private requestJson(
+    path: string,
+    method: string,
+    body: unknown,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     return this.client.request<unknown>(path, {
       method,
       body: JSON.stringify(body),
+      signal,
     })
   }
 }

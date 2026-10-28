@@ -51,7 +51,7 @@ export default function App() {
     return loadNavigationState(window.sessionStorage, today)
   })
   const { activeView, selectedDate } = navigationState
-  const [formDate, setFormDate] = useState(today)
+  const [formDate] = useState(today)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [taskFormMode, setTaskFormMode] = useState<TaskFormMode>('add')
   const [formOpen, setFormOpen] = useState(false)
@@ -60,7 +60,7 @@ export default function App() {
   const [rescheduleUnavailableTask, setRescheduleUnavailableTask] = useState<Task | null>(null)
   const [pendingTaskSave, setPendingTaskSave] = useState<PendingTaskSave | null>(null)
   const [pendingReopenTask, setPendingReopenTask] = useState<Task | null>(null)
-  const [reviewMessageVisible, setReviewMessageVisible] = useState(false)
+  const [mutationNoticeVisible, setMutationNoticeVisible] = useState(false)
   const automaticTheme = weekdayThemes[currentDate.getDay()]
   const theme = getTheme(planner.state.settings.manualThemeId, currentDate.getDay())
   const themeStyle = {
@@ -84,17 +84,12 @@ export default function App() {
   }
 
   const openNewTaskForm = (date = today) => {
-    setFormDate(date)
-    setEditingTask(null)
-    setTaskFormMode('add')
-    setFormOpen(true)
+    void date
+    setMutationNoticeVisible(true)
   }
 
-  const openTaskEditor = (task: Task) => {
-    setEditingTask(task)
-    setFormDate(task.date)
-    setTaskFormMode('edit')
-    setFormOpen(true)
+  const openTaskEditor = (_task: Task) => {
+    setMutationNoticeVisible(true)
   }
 
   const closeTaskForm = () => {
@@ -103,15 +98,8 @@ export default function App() {
     setTaskFormMode('add')
   }
 
-  const requestTaskReschedule = (task: Task) => {
-    if (!canRescheduleTask(task.date, task.startTime)) {
-      setRescheduleUnavailableTask(task)
-      return
-    }
-    setEditingTask(task)
-    setFormDate(task.date)
-    setTaskFormMode('reschedule')
-    setFormOpen(true)
+  const requestTaskReschedule = (_task: Task) => {
+    setMutationNoticeVisible(true)
   }
 
   const ensureRescheduleStillAllowed = (taskId: string | null): boolean => {
@@ -130,8 +118,8 @@ export default function App() {
       setPendingTaskSave(null)
       return
     }
-    if (taskId) planner.updateTask(taskId, draft)
-    else planner.addTask(draft)
+    void draft
+    setMutationNoticeVisible(true)
     setPendingTaskSave(null)
     closeTaskForm()
   }
@@ -164,28 +152,17 @@ export default function App() {
 
   const confirmReview = () => {
     if (selectedDate !== toLocalDateKey(getCurrentDate())) return
-    planner.reviewPlan()
-    setReviewMessageVisible(true)
-    window.setTimeout(() => setReviewMessageVisible(false), 2500)
+    setMutationNoticeVisible(true)
   }
 
-  const requestTaskReopen = (task: Task) => {
-    const overlappingTasks = findOverlappingTasks(
-      { ...task, actualCompletedMinutes: 0 },
-      planner.state.tasks,
-      task.id,
-    )
-    if (overlappingTasks.length > 0) {
-      setPendingReopenTask(task)
-      return
-    }
-    planner.reopenTask(task.id)
+  const requestTaskReopen = (_task: Task) => {
+    setMutationNoticeVisible(true)
   }
 
   const todayTasks = planner.state.tasks.filter((task) => task.date === today)
   const availableCategories = [
     ...defaultTaskCategories,
-    ...planner.state.customCategories,
+    ...planner.categories.map((category) => category.name),
     ...planner.state.tasks.map((task) => task.category),
   ].filter((category, index, categories) => (
     categories.findIndex((existingCategory) => (
@@ -194,11 +171,11 @@ export default function App() {
   ))
   const taskActions: TaskActionCallbacks = {
     onEdit: openTaskEditor,
-    onDelete: setDeletingTask,
-    onToggleImportant: (task) => planner.toggleImportant(task.id),
-    onComplete: (task) => planner.completeTask(task.id),
-    onPartial: (task) => planner.toggleTaskPartial(task.id),
-    onMarkIncomplete: setPendingIncompleteTask,
+    onDelete: () => setMutationNoticeVisible(true),
+    onToggleImportant: () => setMutationNoticeVisible(true),
+    onComplete: () => setMutationNoticeVisible(true),
+    onPartial: () => setMutationNoticeVisible(true),
+    onMarkIncomplete: () => setMutationNoticeVisible(true),
     onReopen: requestTaskReopen,
     onReschedule: requestTaskReschedule,
   }
@@ -209,6 +186,14 @@ export default function App() {
   if (pendingIncompleteTask) activeModal = 'task-incomplete-confirmation'
   if (pendingReopenTask) activeModal = 'task-reopen-warning'
   if (pendingTaskSave) activeModal = 'task-save-warning'
+
+  if (planner.status === 'loading') {
+    return <PlannerLoadingState />
+  }
+
+  if (planner.status === 'error') {
+    return <PlannerErrorState message={planner.error} onRetry={() => void planner.retry()} />
+  }
 
   return (
     <div
@@ -221,19 +206,25 @@ export default function App() {
           activeView={activeView}
           sidebarCollapsed={planner.state.settings.sidebarCollapsed}
           onNavigate={navigateTo}
-          onToggleSidebar={() => planner.updateSettings({
-            ...planner.state.settings,
-            sidebarCollapsed: !planner.state.settings.sidebarCollapsed,
-          })}
+          onToggleSidebar={() => setMutationNoticeVisible(true)}
         />
         <main className="min-w-0 flex-1 px-4 pb-28 pt-7 sm:px-7 lg:px-10 lg:pb-12 lg:pt-10 xl:px-14">
           <div className="mx-auto max-w-7xl">
-            {planner.storageError && (
+            <p className="mb-5 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-800" role="status">
+              Planner data is loaded from your account. Changes are temporarily disabled until
+              database saving is connected in Part 3.
+            </p>
+            {planner.refreshing && (
+              <p className="mb-5 text-sm font-semibold text-slate-500" role="status">
+                Refreshing planner data…
+              </p>
+            )}
+            {planner.refreshError && (
               <p
                 className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700"
                 role="alert"
               >
-                Changes could not be saved to this browser. Check your storage settings or available space.
+                {planner.refreshError} Existing planner data is still shown.
               </p>
             )}
             {activeView === 'today' && (
@@ -272,7 +263,7 @@ export default function App() {
               <SettingsView
                 settings={planner.state.settings}
                 automaticThemeId={automaticTheme.id}
-                onSave={planner.updateSettings}
+                onSave={() => setMutationNoticeVisible(true)}
                 onOpenReview={() => navigateTo('review')}
               />
             )}
@@ -296,7 +287,7 @@ export default function App() {
             defaultDate={formDate}
             tasks={planner.state.tasks}
             categories={availableCategories}
-            onCreateCategory={planner.addCustomCategory}
+            onCreateCategory={() => setMutationNoticeVisible(true)}
             onSave={requestTaskSave}
             onCancel={closeTaskForm}
             schedulingLocked={taskFormMode === 'edit'}
@@ -381,7 +372,7 @@ export default function App() {
                 type="button"
                 className="button-primary"
                 onClick={() => {
-                  planner.reopenTask(pendingReopenTask.id)
+                  setMutationNoticeVisible(true)
                   setPendingReopenTask(null)
                 }}
               >
@@ -414,7 +405,7 @@ export default function App() {
                 type="button"
                 className="rounded-xl bg-red-600 px-4 py-2.5 font-bold text-white hover:bg-red-700"
                 onClick={() => {
-                  planner.markTaskIncomplete(pendingIncompleteTask.id)
+                  setMutationNoticeVisible(true)
                   setPendingIncompleteTask(null)
                 }}
               >
@@ -473,7 +464,7 @@ export default function App() {
                 type="button"
                 className="rounded-xl bg-red-600 px-4 py-2.5 font-bold text-white hover:bg-red-700"
                 onClick={() => {
-                  planner.deleteTask(deletingTask.id)
+                  setMutationNoticeVisible(true)
                   setDeletingTask(null)
                 }}
               >
@@ -484,15 +475,42 @@ export default function App() {
         </Modal>
       )}
 
-      {reviewMessageVisible && (
+      {mutationNoticeVisible && (
         <div
           className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full bg-slate-900 px-5 py-3 text-sm font-bold text-white shadow-xl lg:bottom-8"
           role="status"
         >
-          Plan reviewed — activity recorded.
+          Changes are temporarily disabled until database saving is available in Part 3.
         </div>
       )}
     </div>
+  )
+}
+
+function PlannerLoadingState() {
+  return (
+    <main className="grid min-h-screen place-items-center bg-slate-50 px-4" aria-busy="true">
+      <div className="text-center" role="status">
+        <div className="mx-auto size-9 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
+        <p className="mt-4 text-sm font-bold text-slate-600">Loading your planner…</p>
+      </div>
+    </main>
+  )
+}
+
+function PlannerErrorState({ message, onRetry }: { message: string | null; onRetry: () => void }) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-slate-50 px-4 py-10">
+      <section className="max-w-md rounded-3xl bg-white p-8 text-center shadow-xl shadow-slate-200/60">
+        <h1 className="text-2xl font-black text-slate-950">Your planner could not be loaded</h1>
+        <p className="mt-3 text-sm leading-relaxed text-slate-600" role="alert">
+          {message ?? 'Please check your connection and try again.'}
+        </p>
+        <button type="button" className="button-primary mx-auto mt-6" onClick={onRetry}>
+          Try again
+        </button>
+      </section>
+    </main>
   )
 }
 

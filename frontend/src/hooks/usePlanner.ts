@@ -1,149 +1,207 @@
-import { useRef, useState } from 'react'
-import type { PlannerSettings, PlannerState, Task, TaskDraft } from '../types/planner'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useApi } from '../api/ApiProvider'
+import { ApiError } from '../api/client'
+import { PlannerApi } from '../api/planner'
+import { useAuth } from '../auth/AuthProvider'
 import {
-  markTaskIncompleteInPlannerState,
-  recordPlannerActivity,
-  reopenTaskInPlannerState,
-  updateTaskInPlannerState,
-} from '../utils/plannerTransitions'
-import { getCompletionState, getPartialCompletedMinutes, removeTaskCompletionEvents, shouldRecordCompletion } from '../utils/taskMetrics'
-import { defaultPlannerState, loadPlannerState, savePlannerState } from '../utils/storage'
+  defaultTaskCategories,
+  isDefaultTaskCategory,
+  normalizeCategoryName,
+} from '../data/categories'
+import type { PlannerState, TaskCategory } from '../types/planner'
+import { defaultPlannerState } from '../utils/storage'
 
-function createId(): string {
-  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
+type PlannerLoadStatus = 'loading' | 'ready' | 'error'
+type LoadKind = 'initial' | 'refresh'
+
+interface ActiveLoad {
+  controller: AbortController
+  promise: Promise<void>
+  userId: string
+}
+
+interface PlannerSnapshot {
+  state: PlannerState
+  categories: TaskCategory[]
+}
+
+function createEmptyPlannerState(): PlannerState {
+  return {
+    ...defaultPlannerState,
+    tasks: [],
+    activityDates: [],
+    completionEvents: [],
+    customCategories: [],
+    settings: { ...defaultPlannerState.settings },
+  }
 }
 
 export function usePlanner() {
-  const [state, setState] = useState<PlannerState>(() => {
-    if (typeof window === 'undefined') return defaultPlannerState
-    return loadPlannerState(window.localStorage)
-  })
-  const stateRef = useRef(state)
-  const [storageError, setStorageError] = useState(false)
+  const apiClient = useApi()
+  const { user } = useAuth()
+  const userId = user?.id ?? null
+  const plannerApi = useMemo(() => new PlannerApi(apiClient), [apiClient])
+  const [state, setState] = useState<PlannerState>(createEmptyPlannerState)
+  const [categories, setCategories] = useState<TaskCategory[]>([])
+  const [status, setStatus] = useState<PlannerLoadStatus>('loading')
+  const [error, setError] = useState<string | null>(null)
+  const [refreshError, setRefreshError] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const generationRef = useRef(0)
+  const activeLoadRef = useRef<ActiveLoad | null>(null)
 
-  const commitState = (updateState: (currentState: PlannerState) => PlannerState) => {
-    const nextState = updateState(stateRef.current)
-    stateRef.current = nextState
-    setState(nextState)
-    setStorageError(!savePlannerState(window.localStorage, nextState))
-  }
+  const abortActiveLoad = useCallback(() => {
+    activeLoadRef.current?.controller.abort()
+    activeLoadRef.current = null
+  }, [])
 
-  const addTask = (draft: TaskDraft, now = new Date()): Task => {
-    const timestamp = now.toISOString()
-    const stateValue = getCompletionState(draft.actualCompletedMinutes, draft.plannedMinutes)
-    const task: Task = {
-      ...draft,
-      id: createId(),
-      actualCompletedMinutes: Math.max(0, draft.actualCompletedMinutes),
-      completionState: stateValue,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      completedAt: stateValue === 'completed' ? timestamp : null,
+  const loadPlanner = useCallback((kind: LoadKind): Promise<void> => {
+    if (!userId) return Promise.resolve()
+    const existingLoad = activeLoadRef.current
+    if (existingLoad?.userId === userId) return existingLoad.promise
+
+    abortActiveLoad()
+    const controller = new AbortController()
+    const generation = ++generationRef.current
+    if (kind === 'initial') {
+      setStatus('loading')
+      setError(null)
+    } else {
+      setRefreshing(true)
+      setRefreshError(null)
     }
-    commitState((current) => {
-      const withActivity = recordPlannerActivity(current, now)
-      return {
-        ...withActivity,
-        tasks: [...withActivity.tasks, task],
-        completionEvents: stateValue === 'completed' && shouldRecordCompletion(task.date, now)
-          ? [...withActivity.completionEvents, { id: createId(), taskId: task.id, completedAt: timestamp }]
-          : withActivity.completionEvents,
-      }
-    })
-    return task
-  }
 
-  const updateTask = (id: string, draft: TaskDraft, now = new Date()) => {
-    commitState((current) => updateTaskInPlannerState(current, id, draft, now, createId()))
-  }
+    let loadPromise: Promise<void>
+    loadPromise = loadPlannerSnapshot(plannerApi, controller.signal)
+      .then((snapshot) => {
+        if (controller.signal.aborted || generation !== generationRef.current) return
+        setState(snapshot.state)
+        setCategories(snapshot.categories)
+        setStatus('ready')
+        setError(null)
+        setRefreshError(null)
+      })
+      .catch((loadError: unknown) => {
+        if (controller.signal.aborted || generation !== generationRef.current) return
+        controller.abort()
+        const errorMessage = getPlannerErrorMessage(loadError)
+        if (kind === 'initial') {
+          setStatus('error')
+          setError(errorMessage)
+        } else {
+          setRefreshError(errorMessage)
+        }
+      })
+      .finally(() => {
+        if (activeLoadRef.current?.promise === loadPromise) {
+          activeLoadRef.current = null
+        }
+        if (generation === generationRef.current) setRefreshing(false)
+      })
 
-  const completeTask = (id: string, now = new Date()) => {
-    commitState((current) => {
-      const task = current.tasks.find((item) => item.id === id)
-      if (!task) return current
-      return updateTaskInPlannerState(
-        current,
-        id,
-        { ...task, actualCompletedMinutes: task.plannedMinutes },
-        now,
-        createId(),
-      )
-    })
-  }
+    activeLoadRef.current = { controller, promise: loadPromise, userId }
+    return loadPromise
+  }, [abortActiveLoad, plannerApi, userId])
 
-  const toggleTaskPartial = (id: string, now = new Date()) => {
-    commitState((current) => {
-      const task = current.tasks.find((item) => item.id === id)
-      if (!task) return current
-      const actualCompletedMinutes = task.completionState === 'partial'
-        ? 0
-        : getPartialCompletedMinutes(task.plannedMinutes)
-      return updateTaskInPlannerState(
-        current,
-        id,
-        { ...task, actualCompletedMinutes },
-        now,
-        createId(),
-      )
-    })
-  }
+  /* oxlint-disable react/set-state-in-effect -- account changes must clear the previous user's snapshot before starting network work. */
+  useEffect(() => {
+    generationRef.current += 1
+    abortActiveLoad()
+    setState(createEmptyPlannerState())
+    setCategories([])
+    setError(null)
+    setRefreshError(null)
+    setRefreshing(false)
 
-  const markTaskIncomplete = (id: string, now = new Date()) => {
-    commitState((current) => markTaskIncompleteInPlannerState(current, id, now))
-  }
+    if (!userId) {
+      setStatus('loading')
+      return
+    }
 
-  const reopenTask = (id: string, now = new Date()) => {
-    commitState((current) => reopenTaskInPlannerState(current, id, now))
-  }
+    void loadPlanner('initial')
+    return () => {
+      generationRef.current += 1
+      abortActiveLoad()
+    }
+  }, [abortActiveLoad, loadPlanner, userId])
+  /* oxlint-enable react/set-state-in-effect */
 
-  const toggleImportant = (id: string, now = new Date()) => {
-    commitState((current) => {
-      const task = current.tasks.find((item) => item.id === id)
-      if (!task) return current
-      return updateTaskInPlannerState(current, id, { ...task, important: !task.important }, now, createId())
-    })
-  }
+  useEffect(() => {
+    if (status !== 'ready') return
+    const refreshPlanner = () => void loadPlanner('refresh')
+    const refreshVisiblePlanner = () => {
+      if (document.visibilityState === 'visible') refreshPlanner()
+    }
 
-  const deleteTask = (id: string) => {
-    commitState((current) => ({
-      ...current,
-      tasks: current.tasks.filter((task) => task.id !== id),
-      completionEvents: removeTaskCompletionEvents(current.completionEvents, id),
-    }))
-  }
-
-  const reviewPlan = (now = new Date()) => {
-    commitState((current) => recordPlannerActivity(current, now))
-  }
-
-  const updateSettings = (settings: PlannerSettings) => {
-    commitState((current) => ({ ...current, settings }))
-  }
-
-  const addCustomCategory = (category: string) => {
-    const normalizedCategory = category.trim()
-    if (!normalizedCategory) return
-    commitState((current) => ({
-      ...current,
-      customCategories: current.customCategories.some((existingCategory) => existingCategory.toLocaleLowerCase() === normalizedCategory.toLocaleLowerCase())
-        ? current.customCategories
-        : [...current.customCategories, normalizedCategory],
-    }))
-  }
+    window.addEventListener('focus', refreshPlanner)
+    document.addEventListener('visibilitychange', refreshVisiblePlanner)
+    return () => {
+      window.removeEventListener('focus', refreshPlanner)
+      document.removeEventListener('visibilitychange', refreshVisiblePlanner)
+    }
+  }, [loadPlanner, status])
 
   return {
     state,
-    storageError,
-    addTask,
-    updateTask,
-    completeTask,
-    toggleTaskPartial,
-    markTaskIncomplete,
-    reopenTask,
-    toggleImportant,
-    deleteTask,
-    reviewPlan,
-    updateSettings,
-    addCustomCategory,
+    categories,
+    status,
+    error,
+    refreshError,
+    refreshing,
+    retry: () => loadPlanner('initial'),
   }
+}
+
+async function loadPlannerSnapshot(
+  plannerApi: PlannerApi,
+  signal: AbortSignal,
+): Promise<PlannerSnapshot> {
+  const [settings, tasks, activity, initialCategories] = await Promise.all([
+    plannerApi.getSettings(signal),
+    plannerApi.getTasks(signal),
+    plannerApi.getActivity(signal),
+    plannerApi.getCategories(signal),
+  ])
+  const categories = await ensureDefaultCategories(plannerApi, initialCategories, signal)
+  return {
+    categories,
+    state: {
+      version: 2,
+      tasks,
+      activityDates: activity.activityDates,
+      completionEvents: activity.completionEvents,
+      customCategories: categories
+        .filter((category) => !isDefaultTaskCategory(category.name))
+        .map((category) => category.name),
+      settings,
+    },
+  }
+}
+
+async function ensureDefaultCategories(
+  plannerApi: PlannerApi,
+  categories: TaskCategory[],
+  signal: AbortSignal,
+): Promise<TaskCategory[]> {
+  const existingNames = new Set(categories.map((category) => normalizeCategoryName(category.name)))
+  const missingCategories = defaultTaskCategories.filter(
+    (category) => !existingNames.has(normalizeCategoryName(category)),
+  )
+  if (missingCategories.length === 0) return categories
+
+  await Promise.all(missingCategories.map(async (category) => {
+    try {
+      await plannerApi.createCategory(category, signal)
+    } catch (categoryError) {
+      if (!(categoryError instanceof ApiError && categoryError.code === 'category_name_conflict')) {
+        throw categoryError
+      }
+    }
+  }))
+  return plannerApi.getCategories(signal)
+}
+
+function getPlannerErrorMessage(error: unknown): string {
+  if (error instanceof ApiError || error instanceof Error) return error.message
+  return 'Planner data could not be loaded. Please try again.'
 }

@@ -170,6 +170,29 @@ describe('PlannerApi', () => {
     ])
   })
 
+  it('forwards cancellation signals for planner bootstrap requests', async () => {
+    const { plannerApi, request } = createPlannerApi()
+    const controller = new AbortController()
+    request
+      .mockResolvedValueOnce([taskResponse])
+      .mockResolvedValueOnce([{ id: 'category-id', name: 'Work' }])
+      .mockResolvedValueOnce({
+        manual_theme_id: null,
+        sidebar_collapsed: false,
+        time_zone: 'UTC',
+      })
+      .mockResolvedValueOnce({ activity_dates: [], completion_events: [] })
+
+    await plannerApi.getTasks(controller.signal)
+    await plannerApi.getCategories(controller.signal)
+    await plannerApi.getSettings(controller.signal)
+    await plannerApi.getActivity(controller.signal)
+
+    for (const [, options] of request.mock.calls) {
+      expect(options).toEqual({ signal: controller.signal })
+    }
+  })
+
   it('creates tasks with the backend field names', async () => {
     const { plannerApi, request } = createPlannerApi()
     request.mockResolvedValue(taskResponse)

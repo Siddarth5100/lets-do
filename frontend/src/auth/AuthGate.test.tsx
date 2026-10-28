@@ -1,45 +1,70 @@
-import { describe, expect, it, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../lib/environment', () => ({
-  frontendEnvironment: {
-    supabaseUrl: 'https://example.supabase.co',
-    supabaseAnonKey: 'public-key',
-    apiBaseUrl: '/api',
-  },
+const testState = vi.hoisted(() => ({
+  status: 'authenticated',
+  userId: 'user-one',
+  appMounts: 0,
+  appUnmounts: 0,
+  signOut: vi.fn(),
 }))
 
-import { claimPlannerForUser } from './AuthGate'
+vi.mock('./AuthProvider', () => ({
+  useAuth: () => ({
+    status: testState.status,
+    user: testState.userId
+      ? { id: testState.userId, email: `${testState.userId}@example.com` }
+      : null,
+    signOut: testState.signOut,
+  }),
+}))
 
-describe('planner account ownership', () => {
-  it('allows the first account to claim legacy planner storage', () => {
-    const storage = new Map<string, string>()
-    const localStorage = {
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => storage.set(key, value),
-    }
+vi.mock('../App', async () => {
+  const { useEffect } = await import('react')
+  return {
+    default: function TestApp() {
+      useEffect(() => {
+        testState.appMounts += 1
+        return () => {
+          testState.appUnmounts += 1
+        }
+      }, [])
+      return <div>Database planner</div>
+    },
+  }
+})
 
-    expect(claimPlannerForUser(localStorage, 'user-one')).toBe(true)
-    expect(claimPlannerForUser(localStorage, 'user-one')).toBe(true)
+import { AuthGate } from './AuthGate'
+
+describe('AuthGate database planner isolation', () => {
+  beforeEach(() => {
+    testState.status = 'authenticated'
+    testState.userId = 'user-one'
+    testState.appMounts = 0
+    testState.appUnmounts = 0
+    localStorage.clear()
   })
 
-  it('blocks a different account from mounting the legacy planner', () => {
-    const storage = new Map([['lets-do.planner.owner.v1', 'user-one']])
-    const localStorage = {
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => storage.set(key, value),
-    }
+  it('does not read, replace, or delete legacy planner ownership data', () => {
+    localStorage.setItem('lets-do.planner.owner.v1', 'legacy-owner')
+    localStorage.setItem('lets-do.planner.v1', '{"legacy":true}')
 
-    expect(claimPlannerForUser(localStorage, 'user-two')).toBe(false)
+    render(<AuthGate />)
+
+    expect(screen.getByText('Database planner')).toBeTruthy()
+    expect(localStorage.getItem('lets-do.planner.owner.v1')).toBe('legacy-owner')
+    expect(localStorage.getItem('lets-do.planner.v1')).toBe('{"legacy":true}')
   })
 
-  it('fails closed if browser storage is unavailable', () => {
-    const localStorage = {
-      getItem: () => {
-        throw new Error('storage unavailable')
-      },
-      setItem: () => undefined,
-    }
+  it('remounts the planner when the authenticated account changes', () => {
+    const view = render(<AuthGate />)
+    expect(testState.appMounts).toBe(1)
 
-    expect(claimPlannerForUser(localStorage, 'user-one')).toBe(false)
+    testState.userId = 'user-two'
+    view.rerender(<AuthGate />)
+
+    expect(testState.appUnmounts).toBe(1)
+    expect(testState.appMounts).toBe(2)
+    expect(screen.getByText('user-two@example.com')).toBeTruthy()
   })
 })
