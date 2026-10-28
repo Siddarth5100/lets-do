@@ -18,12 +18,14 @@ class ApplicationError(Exception):
         status_code: int,
         code: str,
         message: str,
+        details: Any | None = None,
         headers: Mapping[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
+        self.details = details
         self.headers = dict(headers or {})
 
 
@@ -102,6 +104,45 @@ class CategoryInUseError(ApplicationError):
         )
 
 
+class TaskNotFoundError(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=404,
+            code="task_not_found",
+            message="The task was not found.",
+        )
+
+
+class TaskSchedulingWarningError(ApplicationError):
+    def __init__(self, details: Mapping[str, Any]) -> None:
+        super().__init__(
+            status_code=409,
+            code="task_scheduling_warning",
+            message="Review the scheduling warnings before saving.",
+            details=details,
+        )
+
+
+class TaskRescheduleUnavailableError(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=409,
+            code="task_reschedule_unavailable",
+            message=(
+                "The task can no longer be rescheduled because its one-hour cutoff has passed."
+            ),
+        )
+
+
+class TaskTransitionError(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=409,
+            code="task_transition_invalid",
+            message="The requested task status change is not available.",
+        )
+
+
 def create_error_response(
     *,
     status_code: int,
@@ -129,6 +170,7 @@ async def handle_application_error(
         status_code=error.status_code,
         code=error.code,
         message=error.message,
+        details=error.details,
         headers=error.headers,
     )
 
