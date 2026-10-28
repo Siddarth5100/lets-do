@@ -75,6 +75,33 @@ class AuthenticationServiceUnavailableError(ApplicationError):
         )
 
 
+class CategoryNotFoundError(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=404,
+            code="category_not_found",
+            message="The category was not found.",
+        )
+
+
+class CategoryNameConflictError(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=409,
+            code="category_name_conflict",
+            message="A category with this name already exists.",
+        )
+
+
+class CategoryInUseError(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=409,
+            code="category_in_use",
+            message="The category cannot be deleted while tasks use it.",
+        )
+
+
 def create_error_response(
     *,
     status_code: int,

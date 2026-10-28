@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.api.routes.auth import router as auth_router
+from app.api.routes.categories import router as categories_router
 from app.api.routes.health import router as health_router
 from app.api.routes.settings import router as settings_router
 from app.core.config import get_settings
@@ -18,6 +19,7 @@ def create_application() -> FastAPI:
     register_exception_handlers(application)
     application.include_router(health_router)
     application.include_router(auth_router)
+    application.include_router(categories_router)
     application.include_router(settings_router)
 
     return application
