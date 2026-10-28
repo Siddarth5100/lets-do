@@ -10,6 +10,7 @@ import httpx2
 import pytest
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.api.dependencies import get_authenticated_user
 from app.api.routes import tasks as task_routes
@@ -134,13 +135,13 @@ def send_task_request(
         ("GET", "/api/v1/tasks", None),
         ("GET", f"/api/v1/tasks/{uuid4()}", None),
         ("POST", "/api/v1/tasks", {}),
-        ("PATCH", f"/api/v1/tasks/{uuid4()}", {"important": True}),
+        ("PATCH", f"/api/v1/tasks/{uuid4()}", {"version": 1, "important": True}),
         (
             "PATCH",
             f"/api/v1/tasks/{uuid4()}/completion",
-            {"action": "complete"},
+            {"version": 1, "action": "complete"},
         ),
-        ("DELETE", f"/api/v1/tasks/{uuid4()}", None),
+        ("DELETE", f"/api/v1/tasks/{uuid4()}?version=1", None),
     ],
 )
 def test_task_endpoints_require_authentication(
@@ -379,7 +380,7 @@ def test_update_task_rechecks_strict_reschedule_cutoff(monkeypatch: pytest.Monke
         "PATCH",
         f"/api/v1/tasks/{task.id}",
         database_session=database_session,
-        json={"start_time": "15:00"},
+        json={"version": 1, "start_time": "15:00"},
     )
 
     assert response.status_code == 409
@@ -410,7 +411,7 @@ def test_rescheduling_partial_task_keeps_exactly_half_progress(
         "PATCH",
         f"/api/v1/tasks/{task.id}",
         database_session=database_session,
-        json={"planned_minutes": 45},
+        json={"version": 1, "planned_minutes": 45},
     )
 
     assert response.status_code == 200
@@ -436,7 +437,7 @@ def test_toggling_important_skips_form_conflict_warnings(
         "PATCH",
         f"/api/v1/tasks/{task.id}",
         database_session=database_session,
-        json={"important": True},
+        json={"version": 1, "important": True},
     )
 
     assert response.status_code == 200
@@ -460,7 +461,7 @@ def test_complete_task_records_completion_and_activity(monkeypatch: pytest.Monke
         "PATCH",
         f"/api/v1/tasks/{task.id}/completion",
         database_session=database_session,
-        json={"action": "complete"},
+        json={"version": 1, "action": "complete"},
     )
 
     assert response.status_code == 200
@@ -489,7 +490,7 @@ def test_completing_future_task_does_not_record_completion_event(
         "PATCH",
         f"/api/v1/tasks/{task.id}/completion",
         database_session=database_session,
-        json={"action": "complete"},
+        json={"version": 1, "action": "complete"},
     )
 
     assert response.status_code == 200
@@ -530,7 +531,7 @@ def test_toggle_partial_matches_frontend_half_progress_rule(
         "PATCH",
         f"/api/v1/tasks/{task.id}/completion",
         database_session=database_session,
-        json={"action": "toggle_partial"},
+        json={"version": 1, "action": "toggle_partial"},
     )
 
     assert response.status_code == 200
@@ -556,7 +557,7 @@ def test_mark_incomplete_removes_completion_history_but_records_activity(
         "PATCH",
         f"/api/v1/tasks/{task.id}/completion",
         database_session=database_session,
-        json={"action": "mark_incomplete"},
+        json={"version": 1, "action": "mark_incomplete"},
     )
 
     assert response.status_code == 200
@@ -590,7 +591,7 @@ def test_reopen_requires_overlap_confirmation_and_then_removes_history(
         "PATCH",
         f"/api/v1/tasks/{completed_task.id}/completion",
         database_session=warning_session,
-        json={"action": "reopen"},
+        json={"version": 1, "action": "reopen"},
     )
     assert warning_response.status_code == 409
     assert "duplicate_tasks" not in warning_response.json()["error"]["details"]
@@ -607,7 +608,7 @@ def test_reopen_requires_overlap_confirmation_and_then_removes_history(
         "PATCH",
         f"/api/v1/tasks/{completed_task.id}/completion",
         database_session=confirmed_session,
-        json={"action": "reopen", "confirm_warnings": True},
+        json={"version": 1, "action": "reopen", "confirm_warnings": True},
     )
 
     assert confirmed_response.status_code == 200
@@ -634,45 +635,178 @@ def test_invalid_completion_transition_is_rejected() -> None:
         "PATCH",
         f"/api/v1/tasks/{completed_task.id}/completion",
         database_session=database_session,
-        json={"action": "complete"},
+        json={"version": 1, "action": "complete"},
     )
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "task_transition_invalid"
 
 
-def test_delete_task_removes_only_the_owned_task_without_recording_activity() -> None:
-    task_id = uuid4()
-    delete_result = MagicMock()
-    delete_result.scalar_one_or_none.return_value = task_id
+@pytest.mark.parametrize(
+    ("method", "path", "request_body"),
+    [
+        ("PATCH", f"/api/v1/tasks/{uuid4()}", {"important": True}),
+        (
+            "PATCH",
+            f"/api/v1/tasks/{uuid4()}/completion",
+            {"action": "complete"},
+        ),
+        ("DELETE", f"/api/v1/tasks/{uuid4()}", None),
+    ],
+)
+def test_task_mutations_require_a_version(
+    method: str,
+    path: str,
+    request_body: dict[str, Any] | None,
+) -> None:
+    response = send_task_request(
+        method,
+        path,
+        database_session=AsyncMock(spec=AsyncSession),
+        json=request_body,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+@pytest.mark.parametrize("request_version", [0, -1])
+def test_task_mutations_reject_invalid_versions(request_version: int) -> None:
+    response = send_task_request(
+        "PATCH",
+        f"/api/v1/tasks/{uuid4()}",
+        database_session=AsyncMock(spec=AsyncSession),
+        json={"version": request_version, "important": True},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_update_task_rejects_stale_version() -> None:
+    category = create_category()
+    task = create_task(category)
+    task.version = 2
     database_session = AsyncMock(spec=AsyncSession)
-    database_session.execute.side_effect = [MagicMock(), delete_result]
+    database_session.execute.side_effect = [MagicMock(), owned_task_result(task, category)]
+
+    response = send_task_request(
+        "PATCH",
+        f"/api/v1/tasks/{task.id}",
+        database_session=database_session,
+        json={"version": 1, "important": True},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "task_version_conflict"
+    database_session.flush.assert_not_awaited()
+
+
+def test_completion_transition_rejects_stale_version() -> None:
+    category = create_category()
+    task = create_task(category)
+    task.version = 2
+    database_session = AsyncMock(spec=AsyncSession)
+    database_session.execute.side_effect = [MagicMock(), owned_task_result(task, category)]
+
+    response = send_task_request(
+        "PATCH",
+        f"/api/v1/tasks/{task.id}/completion",
+        database_session=database_session,
+        json={"version": 1, "action": "complete"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "task_version_conflict"
+    database_session.flush.assert_not_awaited()
+
+
+@pytest.mark.parametrize("operation", ["update", "completion", "delete"])
+def test_task_mutations_convert_race_time_stale_data_errors(
+    operation: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(task_routes, "get_current_time", lambda: FIXED_NOW)
+    category = create_category()
+    task = create_task(category)
+    database_session = AsyncMock(spec=AsyncSession)
+    database_session.execute.side_effect = [MagicMock(), owned_task_result(task, category)]
+    database_session.flush.side_effect = StaleDataError("concurrent task change")
+
+    if operation == "update":
+        method = "PATCH"
+        path = f"/api/v1/tasks/{task.id}"
+        request_body = {"version": 1, "important": True}
+    elif operation == "completion":
+        method = "PATCH"
+        path = f"/api/v1/tasks/{task.id}/completion"
+        request_body = {"version": 1, "action": "toggle_partial"}
+    else:
+        method = "DELETE"
+        path = f"/api/v1/tasks/{task.id}?version=1"
+        request_body = None
+
+    response = send_task_request(
+        method,
+        path,
+        database_session=database_session,
+        json=request_body,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "task_version_conflict"
+
+
+def test_delete_task_removes_only_the_owned_task_without_recording_activity() -> None:
+    category = create_category()
+    task = create_task(category)
+    database_session = AsyncMock(spec=AsyncSession)
+    database_session.execute.side_effect = [MagicMock(), owned_task_result(task, category)]
 
     response = send_task_request(
         "DELETE",
-        f"/api/v1/tasks/{task_id}",
+        f"/api/v1/tasks/{task.id}?version=1",
         database_session=database_session,
     )
 
     assert response.status_code == 204
-    statement = database_session.execute.await_args_list[1].args[0]
-    compiled_statement = statement.compile(dialect=postgresql.dialect())
-    assert TEST_USER_ID in compiled_statement.params.values()
-    assert task_id in compiled_statement.params.values()
+    query = database_session.execute.await_args_list[1].args[0]
+    compiled_query = query.compile(dialect=postgresql.dialect())
+    assert TEST_USER_ID in compiled_query.params.values()
+    assert task.id in compiled_query.params.values()
+    database_session.delete.assert_awaited_once_with(task)
+    database_session.flush.assert_awaited_once_with()
     assert database_session.execute.await_count == 2
 
 
 def test_delete_task_hides_missing_or_foreign_owned_tasks() -> None:
-    delete_result = MagicMock()
-    delete_result.scalar_one_or_none.return_value = None
+    category = create_category()
     database_session = AsyncMock(spec=AsyncSession)
-    database_session.execute.side_effect = [MagicMock(), delete_result]
+    database_session.execute.side_effect = [MagicMock(), owned_task_result(None, category)]
 
     response = send_task_request(
         "DELETE",
-        f"/api/v1/tasks/{uuid4()}",
+        f"/api/v1/tasks/{uuid4()}?version=1",
         database_session=database_session,
     )
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "task_not_found"
+
+
+def test_delete_task_rejects_stale_version() -> None:
+    category = create_category()
+    task = create_task(category)
+    task.version = 2
+    database_session = AsyncMock(spec=AsyncSession)
+    database_session.execute.side_effect = [MagicMock(), owned_task_result(task, category)]
+
+    response = send_task_request(
+        "DELETE",
+        f"/api/v1/tasks/{task.id}?version=1",
+        database_session=database_session,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "task_version_conflict"
+    database_session.delete.assert_not_awaited()

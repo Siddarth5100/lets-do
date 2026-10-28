@@ -8,11 +8,12 @@ from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 from sqlalchemy import and_, delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.api.dependencies import get_authenticated_database_session, get_authenticated_user
 from app.core.errors import (
@@ -21,6 +22,7 @@ from app.core.errors import (
     TaskRescheduleUnavailableError,
     TaskSchedulingWarningError,
     TaskTransitionError,
+    TaskVersionConflictError,
 )
 from app.core.security import AuthenticatedUser
 from app.models import ActivityDay, Category, CompletionEvent, Task
@@ -112,6 +114,7 @@ class TaskCreateRequest(BaseModel):
 class TaskUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    version: int = Field(ge=1)
     category_id: UUID | None = None
     title: str | None = Field(default=None, min_length=1, max_length=200)
     scheduled_date: date | None = None
@@ -158,6 +161,7 @@ class TaskUpdateRequest(BaseModel):
 class TaskCompletionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    version: int = Field(ge=1)
     action: Literal["complete", "toggle_partial", "mark_incomplete", "reopen"]
     confirm_warnings: StrictBool = False
 
@@ -284,6 +288,11 @@ def is_reschedule_allowed(task: Task, current_time: datetime) -> bool:
 
 def local_activity_date(task: Task, current_time: datetime) -> date:
     return current_time.astimezone(ZoneInfo(task.schedule_time_zone)).date()
+
+
+def ensure_task_version(task: Task, supplied_version: int) -> None:
+    if task.version != supplied_version:
+        raise TaskVersionConflictError
 
 
 async def get_owned_category(
@@ -465,6 +474,7 @@ async def update_task(
 ) -> TaskResponse:
     user_id = authenticated_user.user_id
     task, category = await get_owned_task(database_session, user_id, task_id)
+    ensure_task_version(task, task_request.version)
     supplied_fields = task_request.model_fields_set & EDITABLE_FIELDS
     schedule_changed = any(
         field_name in supplied_fields
@@ -524,7 +534,10 @@ async def update_task(
         elif task.completion_state == "completed":
             task.actual_completed_minutes = Decimal(task.planned_minutes)
     task.updated_at = current_time
-    await database_session.flush()
+    try:
+        await database_session.flush()
+    except StaleDataError as error:
+        raise TaskVersionConflictError from error
     await record_activity(
         database_session,
         user_id,
@@ -546,6 +559,7 @@ async def update_task_completion(
 ) -> TaskResponse:
     user_id = authenticated_user.user_id
     task, category = await get_owned_task(database_session, user_id, task_id)
+    ensure_task_version(task, completion_request.version)
     current_time = get_current_time()
     activity_date = local_activity_date(task, current_time)
     action = completion_request.action
@@ -612,7 +626,10 @@ async def update_task_completion(
         await remove_completion_event(database_session, user_id, task.id)
 
     task.updated_at = current_time
-    await database_session.flush()
+    try:
+        await database_session.flush()
+    except StaleDataError as error:
+        raise TaskVersionConflictError from error
     await record_activity(database_session, user_id, activity_date, current_time)
     return create_task_response(task, category)
 
@@ -620,21 +637,22 @@ async def update_task_completion(
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_task(
     task_id: UUID,
+    version: Annotated[int, Query(ge=1)],
     authenticated_user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
     database_session: Annotated[
         AsyncSession,
         Depends(get_authenticated_database_session),
     ],
 ) -> Response:
-    statement = (
-        delete(Task)
-        .where(
-            Task.id == task_id,
-            Task.user_id == authenticated_user.user_id,
-        )
-        .returning(Task.id)
+    task, _category = await get_owned_task(
+        database_session,
+        authenticated_user.user_id,
+        task_id,
     )
-    deleted_task_id = (await database_session.execute(statement)).scalar_one_or_none()
-    if deleted_task_id is None:
-        raise TaskNotFoundError
+    ensure_task_version(task, version)
+    await database_session.delete(task)
+    try:
+        await database_session.flush()
+    except StaleDataError as error:
+        raise TaskVersionConflictError from error
     return Response(status_code=status.HTTP_204_NO_CONTENT)
