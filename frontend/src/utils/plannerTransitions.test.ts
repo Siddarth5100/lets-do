@@ -29,7 +29,7 @@ function createState(task: Task = initialTask): PlannerState {
     activityDates: [],
     completionEvents: [],
     customCategories: [],
-    settings: { availableHours: 8, manualThemeId: null, sidebarCollapsed: false },
+    settings: { manualThemeId: null, sidebarCollapsed: false },
   }
 }
 

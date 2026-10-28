@@ -33,7 +33,6 @@ export interface TaskDraft {
 }
 
 export interface PlannerSettings {
-  availableHours: number
   manualThemeId: string | null
   sidebarCollapsed: boolean
 }

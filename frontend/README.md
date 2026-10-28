@@ -60,7 +60,7 @@ UI components delegate scoring, scheduling, validation, state transitions, and p
 - Duplicate-name and schedule-overlap warnings that require explicit confirmation
 - Rescheduling through the existing task form before the one-hour cutoff preceding the original start
 - Collapsible desktop navigation, mobile navigation, session-restored active view, and persisted Review Plan date
-- Seven automatic weekday themes with manual selection and a stored daily-capacity preference
+- Seven automatic weekday themes with manual selection
 - Accessible dialogs, task progress indicators, form errors, and keyboard-available Partial guidance
 
 ## Scoring and Outcomes
@@ -103,5 +103,5 @@ All data remains in the current browser profile and is not synchronized or backe
 - Reminder settings are stored but notifications are not scheduled or delivered
 - No recurring routines, rest-day streak pauses, cancellation, or overdue automation
 - Navigation is state-based and does not provide shareable URLs or browser history routes
-- Daily capacity is informational and does not restrict scheduling
+- Daily planned time is calculated from scheduled tasks and does not restrict scheduling
 - Inter is loaded from Google Fonts, with the configured system font stack as fallback

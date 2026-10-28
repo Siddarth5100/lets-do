@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { weekdayThemes } from '../../data/themes'
 import type { PlannerSettings } from '../../types/planner'
 import { Icon } from '../ui/Icon'
@@ -16,22 +15,8 @@ export function SettingsView({
   onSave,
   onOpenReview,
 }: SettingsViewProps) {
-  const [availableHours, setAvailableHours] = useState(settings.availableHours)
-  const [capacitySaved, setCapacitySaved] = useState(false)
-
-  const saveAvailableHours = () => {
-    if (!Number.isFinite(availableHours) || availableHours <= 0 || availableHours > 24) return
-    onSave({ ...settings, availableHours })
-    setCapacitySaved(true)
-  }
-
   const selectTheme = (manualThemeId: string | null) => {
     onSave({ ...settings, manualThemeId })
-  }
-
-  const updateAvailableHours = (value: string) => {
-    setAvailableHours(Number(value))
-    setCapacitySaved(false)
   }
 
   return (
@@ -43,35 +28,6 @@ export function SettingsView({
           Set the pace and choose the color that helps today feel like yours.
         </p>
       </header>
-
-      <section className="panel p-5 sm:p-7">
-        <h2 className="text-xl font-black text-slate-900">Daily capacity</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Used to compare your available time with estimated task duration.
-        </p>
-        <div className="mt-5 flex max-w-sm items-end gap-3">
-          <label className="field-label flex-1">
-            Available hours
-            <input
-              className="field-input"
-              type="number"
-              min="0.5"
-              max="24"
-              step="0.5"
-              value={availableHours}
-              onChange={(event) => updateAvailableHours(event.target.value)}
-            />
-          </label>
-          <button type="button" className="button-primary mb-px" onClick={saveAvailableHours}>
-            Save
-          </button>
-        </div>
-        {capacitySaved && (
-          <p className="mt-2 text-sm font-semibold text-emerald-700" role="status">
-            Capacity saved.
-          </p>
-        )}
-      </section>
 
       <section className="panel p-5 sm:p-7">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">

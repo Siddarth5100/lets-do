@@ -17,7 +17,6 @@ export const defaultPlannerState: PlannerState = {
   completionEvents: [],
   customCategories: [],
   settings: {
-    availableHours: 8,
     manualThemeId: null,
     sidebarCollapsed: false,
   },
@@ -37,7 +36,6 @@ function stringArray(value: unknown): string[] {
 function normalizeSettings(value: unknown): PlannerState['settings'] {
   const settings = isRecord(value) ? value : {}
   return {
-    availableHours: typeof settings.availableHours === 'number' && settings.availableHours > 0 ? settings.availableHours : 8,
     manualThemeId: typeof settings.manualThemeId === 'string' ? settings.manualThemeId : null,
     sidebarCollapsed: typeof settings.sidebarCollapsed === 'boolean' ? settings.sidebarCollapsed : false,
   }
