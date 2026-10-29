@@ -6,7 +6,7 @@ import type {
   TaskCategory,
   TaskDraft,
 } from '../types/planner'
-import { requireIanaTimeZone } from '../utils/timeZones'
+import { requireIanaTimeZone, requireV1TimeZone } from '../utils/timeZones'
 import type { ApiClient } from './client'
 
 export type TaskCompletionAction = 'complete' | 'toggle_partial' | 'mark_incomplete' | 'reopen'
@@ -127,7 +127,7 @@ export class PlannerApi {
   }
 
   async createTask(input: TaskCreateInput, signal?: AbortSignal): Promise<Task> {
-    const timeZone = requireIanaTimeZone(input.scheduleTimeZone, 'scheduleTimeZone')
+    const timeZone = requireV1TimeZone(input.scheduleTimeZone, 'scheduleTimeZone')
     const body = {
       category_id: input.categoryId,
       title: input.draft.title,
@@ -160,7 +160,7 @@ export class PlannerApi {
       'schedule_time_zone',
       input.scheduleTimeZone === undefined
         ? undefined
-        : requireIanaTimeZone(input.scheduleTimeZone, 'scheduleTimeZone'),
+        : requireV1TimeZone(input.scheduleTimeZone, 'scheduleTimeZone'),
     )
     assignDefined(body, 'planned_minutes', input.plannedMinutes)
     assignDefined(body, 'reminder_enabled', input.reminderEnabled)
@@ -232,7 +232,7 @@ export class PlannerApi {
     const body = {
       manual_theme_id: settings.manualThemeId,
       sidebar_collapsed: settings.sidebarCollapsed,
-      time_zone: requireIanaTimeZone(settings.timeZone, 'timeZone'),
+      time_zone: requireV1TimeZone(settings.timeZone, 'timeZone'),
     }
     return mapSettingsResponse(await this.requestJson('/v1/settings', 'PUT', body, signal))
   }
@@ -243,7 +243,7 @@ export class PlannerApi {
 
   async confirmReview(timeZone: string, signal?: AbortSignal): Promise<ReviewConfirmation> {
     return mapReviewResponse(await this.requestJson('/v1/activity/review', 'POST', {
-      time_zone: requireIanaTimeZone(timeZone, 'timeZone'),
+      time_zone: requireV1TimeZone(timeZone, 'timeZone'),
     }, signal))
   }
 

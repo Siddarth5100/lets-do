@@ -1,4 +1,5 @@
 import { fromLocalDateKey } from './dates'
+import { getV1ScheduledTimestamp } from './timeZones'
 
 export const MINUTES_PER_DAY = 24 * 60
 const RESCHEDULE_CUTOFF_MINUTES = 60
@@ -128,15 +129,6 @@ export function getTimingBoundaryDelay(
 }
 
 function getTaskScheduledStartTimestamp(taskDate: string, startTime: string): number | null {
-  const taskDateValue = fromLocalDateKey(taskDate)
-  const startMinutes = parseTimeToMinutes(startTime)
-  if (!taskDateValue || startMinutes === null) return null
-
-  return new Date(
-    taskDateValue.getFullYear(),
-    taskDateValue.getMonth(),
-    taskDateValue.getDate(),
-    Math.floor(startMinutes / 60),
-    startMinutes % 60,
-  ).getTime()
+  if (!fromLocalDateKey(taskDate) || parseTimeToMinutes(startTime) === null) return null
+  return getV1ScheduledTimestamp(taskDate, startTime)
 }

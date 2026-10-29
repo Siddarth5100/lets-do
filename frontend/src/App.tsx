@@ -15,10 +15,11 @@ import { getTheme, weekdayThemes } from './data/themes'
 import { useCurrentDate } from './hooks/useCurrentDate'
 import { usePlanner } from './hooks/usePlanner'
 import type { Task, TaskDraft, ViewName } from './types/planner'
-import { getCurrentDate, toLocalDateKey } from './utils/dates'
+import { getCurrentDate } from './utils/dates'
 import { loadNavigationState, saveNavigationState } from './utils/storage'
 import { getPartialCompletedMinutes } from './utils/taskMetrics'
 import { canRescheduleTask } from './utils/taskTime'
+import { getV1DateKey, getV1WeekdayIndex } from './utils/timeZones'
 import {
   findOverlappingTasks,
   findSameDayDuplicateTasks,
@@ -45,7 +46,7 @@ type ActiveModalName =
 export default function App() {
   const planner = usePlanner()
   const currentDate = useCurrentDate()
-  const today = toLocalDateKey(currentDate)
+  const today = getV1DateKey(currentDate)
   const [navigationState, setNavigationState] = useState(() => {
     if (typeof window === 'undefined') {
       return { activeView: 'today' as ViewName, selectedDate: today }
@@ -65,8 +66,9 @@ export default function App() {
   const [pendingReopenDescriptions, setPendingReopenDescriptions] = useState<string[]>([])
   const [actionError, setActionError] = useState<string | null>(null)
   const [reviewConfirmationVisible, setReviewConfirmationVisible] = useState(false)
-  const automaticTheme = weekdayThemes[currentDate.getDay()]
-  const theme = getTheme(planner.state.settings.manualThemeId, currentDate.getDay())
+  const currentWeekday = getV1WeekdayIndex(currentDate)
+  const automaticTheme = weekdayThemes[currentWeekday]
+  const theme = getTheme(planner.state.settings.manualThemeId, currentWeekday)
   const themeStyle = {
     '--accent': theme.accent,
     '--accent-strong': theme.accentStrong,
@@ -212,7 +214,7 @@ export default function App() {
   }
 
   const confirmReview = async () => {
-    if (selectedDate !== toLocalDateKey(getCurrentDate())) return
+    if (selectedDate !== getV1DateKey(getCurrentDate())) return
     setActionError(null)
     try {
       await planner.confirmReview()

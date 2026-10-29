@@ -1,3 +1,5 @@
+import { getV1DateKey } from './timeZones'
+
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
 export function getCurrentDate(): Date {
@@ -22,6 +24,16 @@ export function addLocalDays(date: Date, amount: number): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + amount)
 }
 
+export function addDateKeyDays(dateKey: string, amount: number): string | null {
+  if (!DATE_PATTERN.test(dateKey)) return null
+  const [year, month, day] = dateKey.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day + amount))
+  if (Number.isNaN(date.getTime())) return null
+  return [date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate()]
+    .map((part, index) => index === 0 ? String(part) : String(part).padStart(2, '0'))
+    .join('-')
+}
+
 export function formatLongDate(dateKey: string): string {
   const date = fromLocalDateKey(dateKey)
   if (!date) return dateKey
@@ -38,5 +50,5 @@ export function formatMonth(date: Date): string {
 
 export function localDateFromTimestamp(timestamp: string): string | null {
   const date = new Date(timestamp)
-  return Number.isNaN(date.getTime()) ? null : toLocalDateKey(date)
+  return Number.isNaN(date.getTime()) ? null : getV1DateKey(date)
 }

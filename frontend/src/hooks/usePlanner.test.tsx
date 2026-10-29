@@ -285,6 +285,7 @@ describe('usePlanner database bootstrap', () => {
 
     expect(testState.createTask).toHaveBeenCalledWith(expect.objectContaining({
       categoryId: 'work-id',
+      scheduleTimeZone: 'Asia/Kolkata',
       confirmWarnings: false,
     }), expect.any(AbortSignal))
     expect(result.current.state.tasks.at(-1)?.title).toBe('Created task')

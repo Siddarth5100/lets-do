@@ -6,7 +6,6 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
@@ -25,6 +24,7 @@ from app.core.errors import (
     TaskVersionConflictError,
 )
 from app.core.security import AuthenticatedUser
+from app.core.time_zones import V1_TIME_ZONE, get_v1_date, validate_v1_time_zone
 from app.models import ActivityDay, Category, CompletionEvent, Task
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
@@ -56,13 +56,7 @@ def normalize_title(title: str) -> str:
 
 
 def validate_time_zone(time_zone: str) -> str:
-    if len(time_zone) > 64:
-        raise ValueError("schedule_time_zone must contain at most 64 characters")
-    try:
-        ZoneInfo(time_zone)
-    except (ValueError, ZoneInfoNotFoundError):
-        raise ValueError("schedule_time_zone must be a valid IANA time zone") from None
-    return time_zone
+    return validate_v1_time_zone(time_zone, "schedule_time_zone")
 
 
 def validate_start_time(start_time: str) -> str:
@@ -281,13 +275,15 @@ def is_reschedule_allowed(task: Task, current_time: datetime) -> bool:
     scheduled_start = datetime.combine(
         task.scheduled_date,
         task.start_time,
-        tzinfo=ZoneInfo(task.schedule_time_zone),
+        tzinfo=V1_TIME_ZONE,
     )
-    return current_time.astimezone(scheduled_start.tzinfo) < scheduled_start - timedelta(hours=1)
+    return current_time.astimezone(V1_TIME_ZONE) < scheduled_start - timedelta(hours=1)
 
 
 def local_activity_date(task: Task, current_time: datetime) -> date:
-    return current_time.astimezone(ZoneInfo(task.schedule_time_zone)).date()
+    # V1 preserves every stored wall-clock date/time and interprets legacy zone
+    # metadata as an India schedule without rewriting existing rows.
+    return get_v1_date(current_time)
 
 
 def ensure_task_version(task: Task, supplied_version: int) -> None:

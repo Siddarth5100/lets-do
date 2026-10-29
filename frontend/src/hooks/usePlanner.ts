@@ -7,7 +7,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { defaultTaskCategories, isDefaultTaskCategory, normalizeCategoryName } from '../data/categories'
 import type { PlannerSettings, PlannerState, Task, TaskCategory, TaskDraft } from '../types/planner'
 import { defaultPlannerState } from '../utils/storage'
-import { getBrowserTimeZone } from '../utils/timeZones'
+import { V1_TIME_ZONE } from '../utils/timeZones'
 
 type PlannerStatus = 'loading' | 'ready' | 'error'
 type TaskUpdateMode = 'edit' | 'reschedule'
@@ -306,7 +306,7 @@ export function usePlanner() {
         const savedTask = await plannerApi.createTask({
           draft,
           categoryId: categoryForName(draft.category).id,
-          scheduleTimeZone: getBrowserTimeZone(),
+          scheduleTimeZone: V1_TIME_ZONE,
           confirmWarnings,
         }, signal)
         setState((current) => ({ ...current, tasks: [...current.tasks, savedTask] }))
@@ -338,7 +338,7 @@ export function usePlanner() {
       ...(mode === 'reschedule' ? {
         date: draft.date,
         startTime: draft.startTime,
-        scheduleTimeZone: getBrowserTimeZone(),
+        scheduleTimeZone: V1_TIME_ZONE,
         plannedMinutes: draft.plannedMinutes,
       } : {}),
     }, signal)
@@ -438,7 +438,7 @@ export function usePlanner() {
 
   const updateSettings = useCallback(async (nextSettings: PlannerSettings): Promise<void> => {
     const previous = stateRef.current.settings
-    const optimistic = { ...nextSettings, timeZone: nextSettings.timeZone ?? previous.timeZone ?? getBrowserTimeZone() }
+    const optimistic = { ...nextSettings, timeZone: V1_TIME_ZONE }
     setState((current) => ({ ...current, settings: optimistic }))
     setSavingSettings(true)
     try {
@@ -460,7 +460,7 @@ export function usePlanner() {
     setConfirmingReview(true)
     try {
       const confirmation = await runMutation((signal) => (
-        plannerApi.confirmReview(getBrowserTimeZone(), signal)
+        plannerApi.confirmReview(V1_TIME_ZONE, signal)
       ))
       setState((current) => ({
         ...current,

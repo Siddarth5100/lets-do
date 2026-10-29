@@ -1,25 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { formatDigitalClock, formatRemainingTime, getSecondsUntilLocalMidnight } from './liveTime'
+import { formatDigitalClock, formatRemainingTime, getSecondsUntilV1Midnight } from './liveTime'
 
 describe('live time utilities', () => {
-  it('formats local time as a zero-padded 24-hour clock', () => {
-    const morning = new Date(2026, 0, 15, 5, 7, 9)
-    const evening = new Date(2026, 0, 15, 23, 45, 6)
+  it('formats IST as a zero-padded 24-hour clock', () => {
+    const morning = new Date('2026-01-14T23:37:09Z')
+    const evening = new Date('2026-01-15T18:15:06Z')
 
     expect(formatDigitalClock(morning)).toBe('05:07:09')
     expect(formatDigitalClock(evening)).toBe('23:45:06')
   })
 
-  it('calculates the time remaining until the next local midnight', () => {
-    const midday = new Date(2026, 0, 15, 12, 0, 0)
+  it('calculates the time remaining until the next IST midnight', () => {
+    const midday = new Date('2026-01-15T06:30:00Z')
 
-    expect(getSecondsUntilLocalMidnight(midday)).toBe(12 * 60 * 60)
+    expect(getSecondsUntilV1Midnight(midday)).toBe(12 * 60 * 60)
   })
 
   it('rounds partial seconds up without showing zero before midnight', () => {
-    const justBeforeMidnight = new Date(2026, 0, 15, 23, 59, 59, 500)
+    const justBeforeMidnight = new Date('2026-01-15T18:29:59.500Z')
 
-    expect(getSecondsUntilLocalMidnight(justBeforeMidnight)).toBe(1)
+    expect(getSecondsUntilV1Midnight(justBeforeMidnight)).toBe(1)
   })
 
   it('formats remaining time and prevents negative output', () => {

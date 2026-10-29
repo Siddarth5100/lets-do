@@ -263,7 +263,7 @@ describe('PlannerApi', () => {
       .mockResolvedValueOnce({
         manual_theme_id: 'friday',
         sidebar_collapsed: true,
-        time_zone: 'America/New_York',
+        time_zone: 'Asia/Kolkata',
       })
       .mockResolvedValueOnce({ activity_date: '2026-10-28' })
 
@@ -279,9 +279,9 @@ describe('PlannerApi', () => {
     await plannerApi.updateSettings({
       manualThemeId: 'friday',
       sidebarCollapsed: true,
-      timeZone: 'America/New_York',
+      timeZone: 'Asia/Kolkata',
     })
-    await expect(plannerApi.confirmReview('America/New_York')).resolves.toEqual({
+    await expect(plannerApi.confirmReview('Asia/Kolkata')).resolves.toEqual({
       activityDate: '2026-10-28',
     })
 
@@ -302,9 +302,9 @@ describe('PlannerApi', () => {
     expect(requestBody(request, 5)).toEqual({
       manual_theme_id: 'friday',
       sidebar_collapsed: true,
-      time_zone: 'America/New_York',
+      time_zone: 'Asia/Kolkata',
     })
-    expect(requestBody(request, 6)).toEqual({ time_zone: 'America/New_York' })
+    expect(requestBody(request, 6)).toEqual({ time_zone: 'Asia/Kolkata' })
   })
 
   it('validates versions, task updates, and time zones before sending', async () => {
@@ -314,7 +314,12 @@ describe('PlannerApi', () => {
       'At least one task field',
     )
     await expect(plannerApi.deleteTask('task-id', 0)).rejects.toThrow('positive integer')
-    await expect(plannerApi.confirmReview('Not/AZone')).rejects.toThrow('IANA time zone')
+    await expect(plannerApi.confirmReview('UTC')).rejects.toThrow('must be Asia/Kolkata')
+    await expect(plannerApi.createTask({
+      draft: taskDraft,
+      categoryId: 'category-id',
+      scheduleTimeZone: 'Asia/Calcutta',
+    })).rejects.toThrow('must be Asia/Kolkata')
     expect(request).not.toHaveBeenCalled()
   })
 })

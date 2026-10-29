@@ -1,7 +1,6 @@
 from datetime import UTC, date, datetime
 from typing import Annotated
 from uuid import UUID
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -11,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_authenticated_database_session, get_authenticated_user
 from app.core.security import AuthenticatedUser
+from app.core.time_zones import get_v1_date, validate_v1_time_zone
 from app.models import ActivityDay, CompletionEvent
 
 router = APIRouter(prefix="/api/v1/activity", tags=["activity"])
@@ -39,11 +39,7 @@ class ReviewConfirmationRequest(BaseModel):
     @field_validator("time_zone")
     @classmethod
     def validate_time_zone(cls, time_zone: str) -> str:
-        try:
-            ZoneInfo(time_zone)
-        except (ValueError, ZoneInfoNotFoundError):
-            raise ValueError("time_zone must be a valid IANA time zone") from None
-        return time_zone
+        return validate_v1_time_zone(time_zone, "time_zone")
 
 
 class ReviewConfirmationResponse(BaseModel):
@@ -71,9 +67,7 @@ async def get_activity_history(
         .where(CompletionEvent.user_id == user_id)
         .order_by(CompletionEvent.completed_at, CompletionEvent.id)
     )
-    completion_events = (
-        (await database_session.execute(completion_query)).scalars().all()
-    )
+    completion_events = (await database_session.execute(completion_query)).scalars().all()
     return ActivityHistoryResponse(
         activity_dates=activity_dates,
         completion_events=[
@@ -97,7 +91,7 @@ async def confirm_daily_review(
     ],
 ) -> ReviewConfirmationResponse:
     current_time = get_current_time()
-    activity_date = current_time.astimezone(ZoneInfo(review_request.time_zone)).date()
+    activity_date = get_v1_date(current_time)
     statement = (
         insert(ActivityDay)
         .values(
