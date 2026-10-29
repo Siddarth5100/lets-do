@@ -24,3 +24,8 @@ export function requireIanaTimeZone(timeZone: unknown, fieldName = 'time zone'):
   }
   return timeZone
 }
+
+export function getBrowserTimeZone(): string {
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  return isValidIanaTimeZone(timeZone) ? timeZone : 'UTC'
+}

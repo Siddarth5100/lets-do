@@ -153,6 +153,33 @@ def test_put_settings_uses_an_atomic_user_owned_upsert() -> None:
     database_session.commit.assert_awaited_once_with()
 
 
+def test_put_settings_accepts_legacy_iana_time_zone_alias() -> None:
+    stored_settings = UserSettings(
+        user_id=TEST_USER_ID,
+        manual_theme_id=None,
+        sidebar_collapsed=False,
+        time_zone="US/Eastern",
+    )
+    upsert_result = MagicMock()
+    upsert_result.scalar_one.return_value = stored_settings
+    database_session = AsyncMock(spec=AsyncSession)
+    database_session.execute.side_effect = [MagicMock(), upsert_result]
+    request_body = {
+        "manual_theme_id": None,
+        "sidebar_collapsed": False,
+        "time_zone": "US/Eastern",
+    }
+
+    response = send_settings_request(
+        "PUT",
+        database_session=database_session,
+        json=request_body,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == request_body
+
+
 @pytest.mark.parametrize(
     "request_body",
     [

@@ -165,6 +165,25 @@ def test_confirm_review_records_browser_local_date_idempotently(
     assert date(2026, 10, 24) in compiled_statement.params.values()
 
 
+def test_confirm_review_accepts_legacy_alias_and_uses_its_local_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_time = datetime(2026, 10, 24, 3, 30, tzinfo=UTC)
+    monkeypatch.setattr(activity_routes, "get_current_time", lambda: current_time)
+    database_session = AsyncMock(spec=AsyncSession)
+    database_session.execute.side_effect = [MagicMock(), MagicMock()]
+
+    response = send_activity_request(
+        "POST",
+        "/api/v1/activity/review",
+        database_session=database_session,
+        json={"time_zone": "Canada/Eastern"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"activity_date": "2026-10-23"}
+
+
 @pytest.mark.parametrize(
     "request_body",
     [
