@@ -31,6 +31,9 @@ include = ["app*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "supabase_security: opt-in integration tests for the development Supabase project",
+]
 
 [tool.ruff]
 line-length = 100
