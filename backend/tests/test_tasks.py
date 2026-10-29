@@ -246,6 +246,31 @@ def test_create_task_uses_owned_category_and_records_activity(
     assert "ON CONFLICT" in str(activity_statement.compile(dialect=postgresql.dialect()))
 
 
+def test_create_task_accepts_legacy_iana_time_zone_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(task_routes, "get_current_time", lambda: FIXED_NOW)
+    category = create_category()
+    database_session = AsyncMock(spec=AsyncSession)
+    database_session.execute.side_effect = [
+        MagicMock(),
+        scalar_result(category),
+        task_list_result([]),
+        MagicMock(),
+    ]
+
+    response = send_task_request(
+        "POST",
+        database_session=database_session,
+        json=create_task_request(category, schedule_time_zone="Asia/Calcutta"),
+    )
+
+    assert response.status_code == 201
+    created_task = database_session.add.call_args.args[0]
+    assert created_task.schedule_time_zone == "Asia/Calcutta"
+    assert response.json()["schedule_time_zone"] == "Asia/Calcutta"
+
+
 def test_create_task_hides_missing_or_foreign_owned_category() -> None:
     category = create_category()
     database_session = AsyncMock(spec=AsyncSession)
@@ -350,12 +375,10 @@ def test_conflict_detection_finds_cross_midnight_overlap_but_allows_adjacency() 
 def test_confirm_warnings_allows_task_creation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(task_routes, "get_current_time", lambda: FIXED_NOW)
     category = create_category()
-    existing_task = create_task(category)
     database_session = AsyncMock(spec=AsyncSession)
     database_session.execute.side_effect = [
         MagicMock(),
         scalar_result(category),
-        task_list_result([existing_task]),
         MagicMock(),
     ]
 
@@ -367,6 +390,32 @@ def test_confirm_warnings_allows_task_creation(monkeypatch: pytest.MonkeyPatch) 
 
     assert response.status_code == 201
     database_session.add.assert_called_once()
+    assert database_session.execute.await_count == 3
+
+
+def test_confirm_warnings_skips_task_scan_when_updating(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(task_routes, "get_current_time", lambda: FIXED_NOW)
+    category = create_category()
+    task = create_task(category)
+    database_session = AsyncMock(spec=AsyncSession)
+    database_session.execute.side_effect = [
+        MagicMock(),
+        owned_task_result(task, category),
+        MagicMock(),
+    ]
+
+    response = send_task_request(
+        "PATCH",
+        f"/api/v1/tasks/{task.id}",
+        database_session=database_session,
+        json={"version": 1, "title": "Updated title", "confirm_warnings": True},
+    )
+
+    assert response.status_code == 200
+    assert task.title == "Updated title"
+    assert database_session.execute.await_count == 3
 
 
 def test_update_task_rechecks_strict_reschedule_cutoff(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -600,7 +649,6 @@ def test_reopen_requires_overlap_confirmation_and_then_removes_history(
     confirmed_session.execute.side_effect = [
         MagicMock(),
         owned_task_result(completed_task, category),
-        task_list_result([completed_task, overlapping_task]),
         MagicMock(),
         MagicMock(),
     ]
@@ -615,6 +663,7 @@ def test_reopen_requires_overlap_confirmation_and_then_removes_history(
     assert completed_task.completion_state == "pending"
     assert completed_task.actual_completed_minutes == 0
     assert completed_task.completed_at is None
+    assert confirmed_session.execute.await_count == 4
 
 
 def test_invalid_completion_transition_is_rejected() -> None:

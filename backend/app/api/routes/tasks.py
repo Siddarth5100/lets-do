@@ -424,12 +424,13 @@ async def create_task(
         start_time=start_time,
         planned_minutes=task_request.planned_minutes,
     )
-    warnings = find_scheduling_warnings(
-        candidate,
-        await get_owned_tasks(database_session, user_id),
-    )
-    if warnings and not task_request.confirm_warnings:
-        raise TaskSchedulingWarningError(warnings)
+    if not task_request.confirm_warnings:
+        warnings = find_scheduling_warnings(
+            candidate,
+            await get_owned_tasks(database_session, user_id),
+        )
+        if warnings:
+            raise TaskSchedulingWarningError(warnings)
 
     current_time = get_current_time()
     task = Task(
@@ -514,12 +515,12 @@ async def update_task(
     )
     # The star control updates importance directly in the frontend and does not reopen
     # the task form's duplicate/overlap confirmation flow.
-    if supplied_fields != {"important"}:
+    if not task_request.confirm_warnings and supplied_fields != {"important"}:
         warnings = find_scheduling_warnings(
             candidate,
             await get_owned_tasks(database_session, user_id),
         )
-        if warnings and not task_request.confirm_warnings:
+        if warnings:
             raise TaskSchedulingWarningError(warnings)
 
     for field_name in supplied_fields:
@@ -611,15 +612,16 @@ async def update_task_completion(
             start_time=task.start_time,
             planned_minutes=task.planned_minutes,
         )
-        warnings = find_scheduling_warnings(
-            candidate,
-            await get_owned_tasks(database_session, user_id),
-        )
-        overlap_warnings = {
-            key: value for key, value in warnings.items() if key == "overlapping_tasks"
-        }
-        if overlap_warnings and not completion_request.confirm_warnings:
-            raise TaskSchedulingWarningError(overlap_warnings)
+        if not completion_request.confirm_warnings:
+            warnings = find_scheduling_warnings(
+                candidate,
+                await get_owned_tasks(database_session, user_id),
+            )
+            overlap_warnings = {
+                key: value for key, value in warnings.items() if key == "overlapping_tasks"
+            }
+            if overlap_warnings:
+                raise TaskSchedulingWarningError(overlap_warnings)
         task.actual_completed_minutes = Decimal("0")
         task.completion_state = "pending"
         task.completed_at = None
