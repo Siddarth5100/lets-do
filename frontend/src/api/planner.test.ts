@@ -9,6 +9,7 @@ import {
   mapTaskResponse,
   PlannerApi,
   PlannerApiMappingError,
+  parseTaskSchedulingWarnings,
 } from './planner'
 
 const taskResponse = {
@@ -134,6 +135,17 @@ describe('planner API response mappings', () => {
       sidebar_collapsed: false,
       time_zone: 'invalid',
     })).toThrow('IANA time zone')
+  })
+
+  it('maps scheduling warning details and ignores malformed entries', () => {
+    expect(parseTaskSchedulingWarnings({
+      duplicate_tasks: [{ id: 'duplicate-id', title: 'Plan day' }, { title: 'Missing id' }],
+      overlapping_tasks: [{ id: 'overlap-id', title: 'Stand-up' }],
+    })).toEqual({
+      duplicateTasks: [{ id: 'duplicate-id', title: 'Plan day' }],
+      overlappingTasks: [{ id: 'overlap-id', title: 'Stand-up' }],
+    })
+    expect(parseTaskSchedulingWarnings({ unexpected: true })).toBeNull()
   })
 })
 

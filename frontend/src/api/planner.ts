@@ -47,6 +47,16 @@ export interface ReviewConfirmation {
   activityDate: string
 }
 
+export interface TaskWarningReference {
+  id: string
+  title: string
+}
+
+export interface TaskSchedulingWarnings {
+  duplicateTasks: TaskWarningReference[]
+  overlappingTasks: TaskWarningReference[]
+}
+
 interface TaskResponseBody {
   id: unknown
   category_id: unknown
@@ -116,7 +126,7 @@ export class PlannerApi {
     return mapTaskResponse(await this.client.request<unknown>(`/v1/tasks/${encodeURIComponent(taskId)}`))
   }
 
-  async createTask(input: TaskCreateInput): Promise<Task> {
+  async createTask(input: TaskCreateInput, signal?: AbortSignal): Promise<Task> {
     const timeZone = requireIanaTimeZone(input.scheduleTimeZone, 'scheduleTimeZone')
     const body = {
       category_id: input.categoryId,
@@ -130,10 +140,10 @@ export class PlannerApi {
       important: input.draft.important,
       confirm_warnings: input.confirmWarnings ?? false,
     }
-    return mapTaskResponse(await this.requestJson('/v1/tasks', 'POST', body))
+    return mapTaskResponse(await this.requestJson('/v1/tasks', 'POST', body, signal))
   }
 
-  async updateTask(taskId: string, input: TaskUpdateInput): Promise<Task> {
+  async updateTask(taskId: string, input: TaskUpdateInput, signal?: AbortSignal): Promise<Task> {
     if (!hasTaskUpdate(input)) {
       throw new Error('At least one task field must be provided.')
     }
@@ -160,10 +170,15 @@ export class PlannerApi {
       `/v1/tasks/${encodeURIComponent(taskId)}`,
       'PATCH',
       body,
+      signal,
     ))
   }
 
-  async updateTaskCompletion(taskId: string, input: TaskCompletionInput): Promise<Task> {
+  async updateTaskCompletion(
+    taskId: string,
+    input: TaskCompletionInput,
+    signal?: AbortSignal,
+  ): Promise<Task> {
     return mapTaskResponse(await this.requestJson(
       `/v1/tasks/${encodeURIComponent(taskId)}/completion`,
       'PATCH',
@@ -172,13 +187,14 @@ export class PlannerApi {
         action: input.action,
         confirm_warnings: input.confirmWarnings ?? false,
       },
+      signal,
     ))
   }
 
-  async deleteTask(taskId: string, version: number): Promise<void> {
+  async deleteTask(taskId: string, version: number, signal?: AbortSignal): Promise<void> {
     await this.client.request<void>(
       `/v1/tasks/${encodeURIComponent(taskId)}?version=${requireVersion(version)}`,
-      { method: 'DELETE' },
+      { method: 'DELETE', signal },
     )
   }
 
@@ -209,23 +225,26 @@ export class PlannerApi {
     return mapSettingsResponse(await this.client.request<unknown>('/v1/settings', { signal }))
   }
 
-  async updateSettings(settings: Required<PlannerSettings>): Promise<PlannerSettings> {
+  async updateSettings(
+    settings: Required<PlannerSettings>,
+    signal?: AbortSignal,
+  ): Promise<PlannerSettings> {
     const body = {
       manual_theme_id: settings.manualThemeId,
       sidebar_collapsed: settings.sidebarCollapsed,
       time_zone: requireIanaTimeZone(settings.timeZone, 'timeZone'),
     }
-    return mapSettingsResponse(await this.requestJson('/v1/settings', 'PUT', body))
+    return mapSettingsResponse(await this.requestJson('/v1/settings', 'PUT', body, signal))
   }
 
   async getActivity(signal?: AbortSignal): Promise<ActivityHistory> {
     return mapActivityResponse(await this.client.request<unknown>('/v1/activity', { signal }))
   }
 
-  async confirmReview(timeZone: string): Promise<ReviewConfirmation> {
+  async confirmReview(timeZone: string, signal?: AbortSignal): Promise<ReviewConfirmation> {
     return mapReviewResponse(await this.requestJson('/v1/activity/review', 'POST', {
       time_zone: requireIanaTimeZone(timeZone, 'timeZone'),
-    }))
+    }, signal))
   }
 
   private requestJson(
@@ -313,6 +332,15 @@ export function mapReviewResponse(value: unknown): ReviewConfirmation {
   return { activityDate: requireDateKey(review.activity_date, 'review.activity_date') }
 }
 
+export function parseTaskSchedulingWarnings(details: unknown): TaskSchedulingWarnings | null {
+  if (typeof details !== 'object' || details === null || Array.isArray(details)) return null
+  const warningDetails = details as Record<string, unknown>
+  const duplicateTasks = parseWarningReferences(warningDetails.duplicate_tasks)
+  const overlappingTasks = parseWarningReferences(warningDetails.overlapping_tasks)
+  if (duplicateTasks.length === 0 && overlappingTasks.length === 0) return null
+  return { duplicateTasks, overlappingTasks }
+}
+
 function mapCompletionEventResponse(value: unknown): CompletionEvent {
   const event = requireRecord(value, 'completion event') as unknown as CompletionEventResponseBody
   return {
@@ -322,6 +350,17 @@ function mapCompletionEventResponse(value: unknown): CompletionEvent {
       : requireString(event.task_id, 'completion_event.task_id'),
     completedAt: requireTimestamp(event.completed_at, 'completion_event.completed_at'),
   }
+}
+
+function parseWarningReferences(value: unknown): TaskWarningReference[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((warning): TaskWarningReference[] => {
+    if (typeof warning !== 'object' || warning === null || Array.isArray(warning)) return []
+    const reference = warning as Record<string, unknown>
+    return typeof reference.id === 'string' && typeof reference.title === 'string'
+      ? [{ id: reference.id, title: reference.title }]
+      : []
+  })
 }
 
 function requireRecord(value: unknown, fieldName: string): Record<string, unknown> {

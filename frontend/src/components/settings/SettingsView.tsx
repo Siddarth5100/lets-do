@@ -7,6 +7,7 @@ interface SettingsViewProps {
   automaticThemeId: string
   onSave: (settings: PlannerSettings) => void
   onOpenReview: () => void
+  saving?: boolean
 }
 
 export function SettingsView({
@@ -14,6 +15,7 @@ export function SettingsView({
   automaticThemeId,
   onSave,
   onOpenReview,
+  saving = false,
 }: SettingsViewProps) {
   const selectTheme = (manualThemeId: string | null) => {
     onSave({ ...settings, manualThemeId })
@@ -41,6 +43,7 @@ export function SettingsView({
             type="button"
             className={`button-secondary ${settings.manualThemeId === null ? 'border-[var(--accent)] text-[var(--accent-strong)]' : ''}`}
             onClick={() => selectTheme(null)}
+            disabled={saving}
           >
             Automatic
           </button>
@@ -60,6 +63,7 @@ export function SettingsView({
                 style={{ backgroundColor: theme.accentSoft }}
                 onClick={() => selectTheme(theme.id)}
                 aria-pressed={settings.manualThemeId === theme.id}
+                disabled={saving}
               >
                 <span
                   className="block size-7 rounded-full"

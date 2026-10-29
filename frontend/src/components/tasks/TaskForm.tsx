@@ -14,8 +14,8 @@ interface TaskFormProps {
   defaultDate: string
   tasks: Task[]
   categories: string[]
-  onCreateCategory: (category: string) => void
-  onSave: (draft: TaskDraft) => void
+  onCreateCategory: (category: string) => Promise<string>
+  onSave: (draft: TaskDraft) => Promise<void>
   onCancel: () => void
   schedulingLocked?: boolean
 }
@@ -56,6 +56,9 @@ export function TaskForm({ task, defaultDate, tasks, categories, onCreateCategor
   const [endTimeInputErrorMessage, setEndTimeInputErrorMessage] = useState('')
   const [equalTimeErrorMessage, setEqualTimeErrorMessage] = useState('')
   const [durationErrorMessage, setDurationErrorMessage] = useState('')
+  const [categorySaving, setCategorySaving] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [saveErrorMessage, setSaveErrorMessage] = useState('')
   const categoryErrorId = useId()
   const taskNameErrorId = useId()
   const customCategoryErrorId = useId()
@@ -72,23 +75,31 @@ export function TaskForm({ task, defaultDate, tasks, categories, onCreateCategor
     ? findOverlappingTasks({ ...draft, startTime, plannedMinutes: estimatedMinutes }, tasks, task?.id)
     : []
 
-  const createCategory = () => {
+  const createCategory = async () => {
     const categoryName = newCategoryName.trim()
     if (!categoryName) {
       setCustomCategoryErrorMessage('Enter a category name before adding it.')
       return
     }
     const existingCategory = categories.find((category) => category.toLocaleLowerCase() === categoryName.toLocaleLowerCase())
-    const selectedCategory = existingCategory ?? categoryName
-    if (!existingCategory) onCreateCategory(selectedCategory)
-    setDraft({ ...draft, category: selectedCategory })
-    setNewCategoryName('')
-    setCreatingCategory(false)
-    setCategoryErrorMessage('')
+    setCategorySaving(true)
     setCustomCategoryErrorMessage('')
+    try {
+      const selectedCategory = existingCategory ?? await onCreateCategory(categoryName)
+      setDraft({ ...draft, category: selectedCategory })
+      setNewCategoryName('')
+      setCreatingCategory(false)
+      setCategoryErrorMessage('')
+    } catch (categoryError) {
+      setCustomCategoryErrorMessage(categoryError instanceof Error
+        ? categoryError.message
+        : 'The category could not be created.')
+    } finally {
+      setCategorySaving(false)
+    }
   }
 
-  const submitTask = (event: FormEvent) => {
+  const submitTask = async (event: FormEvent) => {
     event.preventDefault()
     if (!draft.category) {
       setCategoryErrorMessage('Choose or create a category first.')
@@ -109,7 +120,15 @@ export function TaskForm({ task, defaultDate, tasks, categories, onCreateCategor
       }
       return
     }
-    onSave({ ...draft, title: draft.title.trim(), startTime, plannedMinutes: estimatedMinutes })
+    setSubmitting(true)
+    setSaveErrorMessage('')
+    try {
+      await onSave({ ...draft, title: draft.title.trim(), startTime, plannedMinutes: estimatedMinutes })
+    } catch (saveError) {
+      setSaveErrorMessage(saveError instanceof Error ? saveError.message : 'The task could not be saved.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -135,6 +154,7 @@ export function TaskForm({ task, defaultDate, tasks, categories, onCreateCategor
             required
             aria-invalid={Boolean(categoryErrorMessage)}
             aria-describedby={categoryErrorMessage ? categoryErrorId : undefined}
+            disabled={submitting || categorySaving}
           >
             <option value="">Select a category</option>
             {categories.map((category) => (
@@ -163,6 +183,7 @@ export function TaskForm({ task, defaultDate, tasks, categories, onCreateCategor
                 autoFocus
                 aria-invalid={Boolean(customCategoryErrorMessage)}
                 aria-describedby={customCategoryErrorMessage ? customCategoryErrorId : undefined}
+                disabled={categorySaving}
               />
               {customCategoryErrorMessage && (
                 <span id={customCategoryErrorId} className="mt-2 block text-xs font-semibold text-red-700" role="alert">
@@ -170,8 +191,8 @@ export function TaskForm({ task, defaultDate, tasks, categories, onCreateCategor
                 </span>
               )}
             </label>
-            <button type="button" className="button-primary mb-px" onClick={createCategory}>
-              Add
+            <button type="button" className="button-primary mb-px" onClick={() => void createCategory()} disabled={categorySaving}>
+              {categorySaving ? 'Adding…' : 'Add'}
             </button>
             <button
               type="button"
@@ -181,6 +202,7 @@ export function TaskForm({ task, defaultDate, tasks, categories, onCreateCategor
                 setCustomCategoryErrorMessage('')
               }}
               aria-label="Cancel category creation"
+              disabled={categorySaving}
             >
               <Icon name="close" className="size-4" />
             </button>
@@ -205,7 +227,7 @@ export function TaskForm({ task, defaultDate, tasks, categories, onCreateCategor
               if (event.target.value.trim()) setTaskNameErrorMessage('')
             }}
             placeholder={draft.category ? 'What would feel good to finish?' : 'Select a category first'}
-            disabled={!draft.category}
+            disabled={!draft.category || submitting}
             required
             aria-invalid={Boolean(taskNameErrorMessage)}
             aria-describedby={taskNameErrorMessage ? taskNameErrorId : undefined}
@@ -369,9 +391,10 @@ export function TaskForm({ task, defaultDate, tasks, categories, onCreateCategor
       </section>
 
       <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
-        <button type="button" className="button-secondary" onClick={onCancel}>Cancel</button>
-        <button type="submit" className="button-primary">
-          {task ? 'Save changes' : 'Add task'}
+        {saveErrorMessage && <p className="mr-auto text-sm font-semibold text-red-700" role="alert">{saveErrorMessage}</p>}
+        <button type="button" className="button-secondary" onClick={onCancel} disabled={submitting}>Cancel</button>
+        <button type="submit" className="button-primary" disabled={submitting || categorySaving}>
+          {submitting ? 'Saving…' : task ? 'Save changes' : 'Add task'}
         </button>
       </div>
     </form>

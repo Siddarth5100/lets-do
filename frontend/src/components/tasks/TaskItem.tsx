@@ -19,6 +19,7 @@ export interface TaskActionCallbacks {
   onMarkIncomplete: (task: Task) => void
   onReopen: (task: Task) => void
   onReschedule: (task: Task) => void
+  isTaskPending?: (task: Task) => boolean
 }
 
 interface TaskItemProps {
@@ -46,6 +47,7 @@ export function TaskItem({ task, actions, showAsOutcome = false }: TaskItemProps
     task.plannedMinutes,
     currentTime,
   )
+  const taskPending = actions.isTaskPending?.(task) ?? false
 
   useEffect(() => {
     const scheduleTimestamps = getTaskScheduleTimestamps(
@@ -96,6 +98,7 @@ export function TaskItem({ task, actions, showAsOutcome = false }: TaskItemProps
           type="button"
           className="shrink-0 rounded-lg bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-bold text-[var(--accent-strong)]"
           onClick={() => actions.onReopen(task)}
+          disabled={taskPending}
         >
           Correct status
         </button>
@@ -120,6 +123,7 @@ export function TaskItem({ task, actions, showAsOutcome = false }: TaskItemProps
         className={`mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border-2 bg-white text-transparent transition focus-visible:text-transparent ${completionButtonBorderClasses}`}
         onClick={() => actions.onComplete(task)}
         aria-label={`Complete ${task.title}`}
+        disabled={taskPending}
       >
         <Icon name="check" className="size-4" />
       </button>
@@ -177,6 +181,7 @@ export function TaskItem({ task, actions, showAsOutcome = false }: TaskItemProps
                 actions.onPartial(task)
               }}
               aria-describedby={partialRuleDescriptionId}
+              disabled={taskPending}
             >
               Partial
             </button>
@@ -192,6 +197,7 @@ export function TaskItem({ task, actions, showAsOutcome = false }: TaskItemProps
             type="button"
             className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:border-red-200 hover:text-red-700"
             onClick={() => actions.onMarkIncomplete(task)}
+            disabled={taskPending}
           >
             Incomplete
           </button>
@@ -200,6 +206,7 @@ export function TaskItem({ task, actions, showAsOutcome = false }: TaskItemProps
               type="button"
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:border-[var(--accent)] hover:text-[var(--accent-strong)]"
               onClick={() => actions.onReschedule(task)}
+              disabled={taskPending}
             >
               Reschedule
             </button>
@@ -215,6 +222,7 @@ export function TaskItem({ task, actions, showAsOutcome = false }: TaskItemProps
           aria-label={task.important
             ? `Remove important from ${task.title}`
             : `Mark ${task.title} important`}
+          disabled={taskPending}
         >
           <Icon name="star" className={`size-4 ${task.important ? 'fill-current' : ''}`} />
         </button>
@@ -223,6 +231,7 @@ export function TaskItem({ task, actions, showAsOutcome = false }: TaskItemProps
           className="icon-button"
           onClick={() => actions.onEdit(task)}
           aria-label={`Edit ${task.title}`}
+          disabled={taskPending}
         >
           <Icon name="edit" className="size-4" />
         </button>
@@ -231,6 +240,7 @@ export function TaskItem({ task, actions, showAsOutcome = false }: TaskItemProps
           className="icon-button hover:text-red-600"
           onClick={() => actions.onDelete(task)}
           aria-label={`Delete ${task.title}`}
+          disabled={taskPending}
         >
           <Icon name="trash" className="size-4" />
         </button>
