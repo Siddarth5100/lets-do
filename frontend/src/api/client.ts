@@ -48,7 +48,7 @@ export class ApiClient {
     this.getSession = options.getSession
     this.refreshSession = options.refreshSession
     this.onAuthenticationFailure = options.onAuthenticationFailure
-    this.fetchImplementation = options.fetchImplementation ?? fetch
+    this.fetchImplementation = options.fetchImplementation ?? globalThis.fetch.bind(globalThis)
   }
 
   setActiveUser(userId: string | null): void {

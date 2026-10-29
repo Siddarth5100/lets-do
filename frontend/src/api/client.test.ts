@@ -29,6 +29,33 @@ function createClient(overrides: {
 }
 
 describe('ApiClient', () => {
+  it('binds the default fetch implementation to the browser global object', async () => {
+    const originalFetch = globalThis.fetch
+    const receiverSensitiveFetch = vi.fn(function (this: unknown) {
+      if (this !== globalThis) throw new TypeError('Illegal invocation')
+      return Promise.resolve(new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+    }) as typeof fetch
+    globalThis.fetch = receiverSensitiveFetch
+
+    try {
+      const client = new ApiClient({
+        baseUrl: '/api',
+        getSession: vi.fn(async () => firstSession),
+        refreshSession: vi.fn(async () => refreshedSession),
+        onAuthenticationFailure: vi.fn(),
+      })
+      client.setActiveUser('user-one')
+
+      await expect(client.request<{ ok: boolean }>('/v1/tasks')).resolves.toEqual({ ok: true })
+      expect(receiverSensitiveFetch).toHaveBeenCalledOnce()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it('sends the bearer token and returns JSON', async () => {
     const { client, fetchImplementation } = createClient()
 
