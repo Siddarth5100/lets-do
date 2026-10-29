@@ -57,6 +57,31 @@ export interface TaskSchedulingWarnings {
   overlappingTasks: TaskWarningReference[]
 }
 
+export interface ImportEntitySummary {
+  valid: number
+  invalid: number
+  created: number
+  existing: number
+}
+
+export interface BrowserDataImportIssue {
+  entity: string
+  sourceId: string | null
+  reason: string
+}
+
+export interface BrowserDataImportResult {
+  sourceVersion: number | null
+  previewDigest: string
+  tasks: ImportEntitySummary
+  categories: ImportEntitySummary
+  activityDates: ImportEntitySummary
+  completionEvents: ImportEntitySummary
+  settingsStatus: string
+  issues: BrowserDataImportIssue[]
+  warnings: string[]
+}
+
 interface TaskResponseBody {
   id: unknown
   category_id: unknown
@@ -101,6 +126,18 @@ interface ActivityResponseBody {
 
 interface ReviewResponseBody {
   activity_date: unknown
+}
+
+interface BrowserDataImportResponseBody {
+  source_version: unknown
+  preview_digest: unknown
+  tasks: unknown
+  categories: unknown
+  activity_dates: unknown
+  completion_events: unknown
+  settings_status: unknown
+  issues: unknown
+  warnings: unknown
 }
 
 export class PlannerApiMappingError extends Error {
@@ -247,6 +284,37 @@ export class PlannerApi {
     }, signal))
   }
 
+  async previewBrowserDataImport(
+    serializedState: string,
+    includeSettings: boolean,
+    signal?: AbortSignal,
+  ): Promise<BrowserDataImportResult> {
+    return mapBrowserDataImportResponse(await this.requestJson(
+      '/v1/imports/local-storage/preview',
+      'POST',
+      { serialized_state: serializedState, include_settings: includeSettings },
+      signal,
+    ))
+  }
+
+  async commitBrowserDataImport(
+    serializedState: string,
+    includeSettings: boolean,
+    previewDigest: string,
+    signal?: AbortSignal,
+  ): Promise<BrowserDataImportResult> {
+    return mapBrowserDataImportResponse(await this.requestJson(
+      '/v1/imports/local-storage',
+      'POST',
+      {
+        serialized_state: serializedState,
+        include_settings: includeSettings,
+        preview_digest: previewDigest,
+      },
+      signal,
+    ))
+  }
+
   private requestJson(
     path: string,
     method: string,
@@ -330,6 +398,46 @@ export function mapActivityResponse(value: unknown): ActivityHistory {
 export function mapReviewResponse(value: unknown): ReviewConfirmation {
   const review = requireRecord(value, 'review') as unknown as ReviewResponseBody
   return { activityDate: requireDateKey(review.activity_date, 'review.activity_date') }
+}
+
+export function mapBrowserDataImportResponse(value: unknown): BrowserDataImportResult {
+  const response = requireRecord(value, 'browser data import') as unknown as BrowserDataImportResponseBody
+  const sourceVersion = response.source_version
+  if (sourceVersion !== null && sourceVersion !== 1 && sourceVersion !== 2) {
+    throw mappingError('browser data import source_version must be 1, 2, or null')
+  }
+  return {
+    sourceVersion,
+    previewDigest: requireString(response.preview_digest, 'browser data import.preview_digest'),
+    tasks: mapImportEntitySummary(response.tasks, 'tasks'),
+    categories: mapImportEntitySummary(response.categories, 'categories'),
+    activityDates: mapImportEntitySummary(response.activity_dates, 'activity_dates'),
+    completionEvents: mapImportEntitySummary(response.completion_events, 'completion_events'),
+    settingsStatus: requireString(response.settings_status, 'browser data import.settings_status'),
+    issues: requireArray(response.issues, 'browser data import.issues').map((value, index) => {
+      const issue = requireRecord(value, `browser data import.issues[${index}]`)
+      return {
+        entity: requireString(issue.entity, `browser data import.issues[${index}].entity`),
+        sourceId: issue.source_id === null
+          ? null
+          : requireString(issue.source_id, `browser data import.issues[${index}].source_id`),
+        reason: requireString(issue.reason, `browser data import.issues[${index}].reason`),
+      }
+    }),
+    warnings: requireArray(response.warnings, 'browser data import.warnings').map(
+      (warning, index) => requireString(warning, `browser data import.warnings[${index}]`),
+    ),
+  }
+}
+
+function mapImportEntitySummary(value: unknown, fieldName: string): ImportEntitySummary {
+  const summary = requireRecord(value, `browser data import.${fieldName}`)
+  return {
+    valid: requireNonNegativeNumber(summary.valid, `${fieldName}.valid`),
+    invalid: requireNonNegativeNumber(summary.invalid, `${fieldName}.invalid`),
+    created: requireNonNegativeNumber(summary.created, `${fieldName}.created`),
+    existing: requireNonNegativeNumber(summary.existing, `${fieldName}.existing`),
+  }
 }
 
 export function parseTaskSchedulingWarnings(details: unknown): TaskSchedulingWarnings | null {

@@ -4,6 +4,7 @@ from app.api.routes.activity import router as activity_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.categories import router as categories_router
 from app.api.routes.health import router as health_router
+from app.api.routes.imports import router as imports_router
 from app.api.routes.settings import router as settings_router
 from app.api.routes.tasks import router as tasks_router
 from app.core.config import get_settings
@@ -20,6 +21,7 @@ def create_application() -> FastAPI:
 
     register_exception_handlers(application)
     application.include_router(health_router)
+    application.include_router(imports_router)
     application.include_router(auth_router)
     application.include_router(activity_router)
     application.include_router(categories_router)

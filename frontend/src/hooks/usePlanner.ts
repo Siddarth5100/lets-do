@@ -473,6 +473,28 @@ export function usePlanner() {
     }
   }, [plannerApi, runMutation, setState])
 
+  const previewBrowserDataImport = useCallback((
+    serializedState: string,
+    includeSettings: boolean,
+  ) => runMutation((signal) => (
+    plannerApi.previewBrowserDataImport(serializedState, includeSettings, signal)
+  )), [plannerApi, runMutation])
+
+  const commitBrowserDataImport = useCallback(async (
+    serializedState: string,
+    includeSettings: boolean,
+    previewDigest: string,
+  ) => {
+    const result = await runMutation((signal) => plannerApi.commitBrowserDataImport(
+      serializedState,
+      includeSettings,
+      previewDigest,
+      signal,
+    ))
+    await loadPlanner('refresh')
+    return result
+  }, [loadPlanner, plannerApi, runMutation])
+
   return {
     state,
     categories,
@@ -498,5 +520,9 @@ export function usePlanner() {
     addCustomCategory,
     updateSettings,
     confirmReview,
+    previewBrowserDataImport,
+    commitBrowserDataImport,
+    authenticatedUserId: userId,
+    authenticatedUserEmail: user?.email ?? null,
   }
 }

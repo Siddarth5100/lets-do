@@ -382,6 +382,10 @@ export default function App() {
                 onSave={(settings) => void performTaskAction(() => planner.updateSettings(settings))}
                 onOpenReview={() => navigateTo('review')}
                 saving={planner.savingSettings}
+                authenticatedUserId={planner.authenticatedUserId}
+                authenticatedUserEmail={planner.authenticatedUserEmail}
+                onPreviewBrowserData={planner.previewBrowserDataImport}
+                onCommitBrowserData={planner.commitBrowserDataImport}
               />
             )}
           </div>

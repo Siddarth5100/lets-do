@@ -1,6 +1,8 @@
 import { weekdayThemes } from '../../data/themes'
 import type { PlannerSettings } from '../../types/planner'
+import type { BrowserDataImportResult } from '../../api/planner'
 import { Icon } from '../ui/Icon'
+import { BrowserDataImportSection } from './BrowserDataImportSection'
 
 interface SettingsViewProps {
   settings: PlannerSettings
@@ -8,6 +10,17 @@ interface SettingsViewProps {
   onSave: (settings: PlannerSettings) => void
   onOpenReview: () => void
   saving?: boolean
+  authenticatedUserId: string | null
+  authenticatedUserEmail: string | null
+  onPreviewBrowserData: (
+    serializedState: string,
+    includeSettings: boolean,
+  ) => Promise<BrowserDataImportResult>
+  onCommitBrowserData: (
+    serializedState: string,
+    includeSettings: boolean,
+    previewDigest: string,
+  ) => Promise<BrowserDataImportResult>
 }
 
 export function SettingsView({
@@ -16,6 +29,10 @@ export function SettingsView({
   onSave,
   onOpenReview,
   saving = false,
+  authenticatedUserId,
+  authenticatedUserEmail,
+  onPreviewBrowserData,
+  onCommitBrowserData,
 }: SettingsViewProps) {
   const selectTheme = (manualThemeId: string | null) => {
     onSave({ ...settings, manualThemeId })
@@ -91,6 +108,13 @@ export function SettingsView({
           Open Review Plan
         </button>
       </section>
+
+      <BrowserDataImportSection
+        authenticatedUserId={authenticatedUserId}
+        authenticatedUserEmail={authenticatedUserEmail}
+        onPreview={onPreviewBrowserData}
+        onCommit={onCommitBrowserData}
+      />
 
       <section className="rounded-3xl border border-dashed border-slate-300 p-5 text-sm text-slate-500">
         <strong className="text-slate-700">Coming later:</strong>{' '}

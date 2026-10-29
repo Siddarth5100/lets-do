@@ -45,6 +45,18 @@ const taskDraft: TaskDraft = {
   important: true,
 }
 
+const browserDataImportResponse = {
+  source_version: 2,
+  preview_digest: 'a'.repeat(64),
+  tasks: { valid: 2, invalid: 1, created: 0, existing: 1 },
+  categories: { valid: 1, invalid: 0, created: 0, existing: 1 },
+  activity_dates: { valid: 1, invalid: 0, created: 0, existing: 0 },
+  completion_events: { valid: 1, invalid: 0, created: 0, existing: 0 },
+  settings_status: 'ready',
+  issues: [{ entity: 'task', source_id: 'bad-task', reason: 'Invalid task.' }],
+  warnings: ['One possible duplicate.'],
+}
+
 function createPlannerApi() {
   const request = vi.fn()
   return {
@@ -305,6 +317,42 @@ describe('PlannerApi', () => {
       time_zone: 'Asia/Kolkata',
     })
     expect(requestBody(request, 6)).toEqual({ time_zone: 'Asia/Kolkata' })
+  })
+
+  it('previews and commits browser data with the exact payload, options, and digest', async () => {
+    const { plannerApi, request } = createPlannerApi()
+    const serializedState = JSON.stringify({ version: 2, tasks: [] })
+    request
+      .mockResolvedValueOnce(browserDataImportResponse)
+      .mockResolvedValueOnce({
+        ...browserDataImportResponse,
+        tasks: { ...browserDataImportResponse.tasks, created: 1 },
+      })
+
+    await expect(plannerApi.previewBrowserDataImport(serializedState, true)).resolves.toMatchObject({
+      sourceVersion: 2,
+      previewDigest: browserDataImportResponse.preview_digest,
+      issues: [{ entity: 'task', sourceId: 'bad-task', reason: 'Invalid task.' }],
+    })
+    await plannerApi.commitBrowserDataImport(
+      serializedState,
+      true,
+      browserDataImportResponse.preview_digest,
+    )
+
+    expect(request.mock.calls.map(([path]) => path)).toEqual([
+      '/v1/imports/local-storage/preview',
+      '/v1/imports/local-storage',
+    ])
+    expect(requestBody(request, 0)).toEqual({
+      serialized_state: serializedState,
+      include_settings: true,
+    })
+    expect(requestBody(request, 1)).toEqual({
+      serialized_state: serializedState,
+      include_settings: true,
+      preview_digest: browserDataImportResponse.preview_digest,
+    })
   })
 
   it('validates versions, task updates, and time zones before sending', async () => {
