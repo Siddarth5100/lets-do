@@ -60,7 +60,7 @@ def test_settings_endpoints_require_authentication(method: str) -> None:
         {
             "manual_theme_id": None,
             "sidebar_collapsed": False,
-            "time_zone": "UTC",
+            "time_zone": "Asia/Kolkata",
         }
         if method == "PUT"
         else None
@@ -115,7 +115,7 @@ def test_get_settings_returns_defaults_without_creating_a_row() -> None:
     assert response.json() == {
         "manual_theme_id": None,
         "sidebar_collapsed": False,
-        "time_zone": "UTC",
+        "time_zone": "Asia/Kolkata",
     }
     assert database_session.add.call_count == 0
 
@@ -125,7 +125,7 @@ def test_put_settings_uses_an_atomic_user_owned_upsert() -> None:
         user_id=TEST_USER_ID,
         manual_theme_id=None,
         sidebar_collapsed=True,
-        time_zone="America/New_York",
+        time_zone="Asia/Kolkata",
     )
     upsert_result = MagicMock()
     upsert_result.scalar_one.return_value = stored_settings
@@ -134,7 +134,7 @@ def test_put_settings_uses_an_atomic_user_owned_upsert() -> None:
     request_body = {
         "manual_theme_id": None,
         "sidebar_collapsed": True,
-        "time_zone": "America/New_York",
+        "time_zone": "Asia/Kolkata",
     }
 
     response = send_settings_request(
@@ -153,31 +153,29 @@ def test_put_settings_uses_an_atomic_user_owned_upsert() -> None:
     database_session.commit.assert_awaited_once_with()
 
 
-def test_put_settings_accepts_legacy_iana_time_zone_alias() -> None:
+def test_get_settings_normalizes_legacy_time_zone_without_rewriting_the_row() -> None:
     stored_settings = UserSettings(
         user_id=TEST_USER_ID,
         manual_theme_id=None,
         sidebar_collapsed=False,
         time_zone="US/Eastern",
     )
-    upsert_result = MagicMock()
-    upsert_result.scalar_one.return_value = stored_settings
+    query_result = MagicMock()
+    query_result.scalar_one_or_none.return_value = stored_settings
     database_session = AsyncMock(spec=AsyncSession)
-    database_session.execute.side_effect = [MagicMock(), upsert_result]
-    request_body = {
-        "manual_theme_id": None,
-        "sidebar_collapsed": False,
-        "time_zone": "US/Eastern",
-    }
-
+    database_session.execute.side_effect = [MagicMock(), query_result]
     response = send_settings_request(
-        "PUT",
+        "GET",
         database_session=database_session,
-        json=request_body,
     )
 
     assert response.status_code == 200
-    assert response.json() == request_body
+    assert response.json() == {
+        "manual_theme_id": None,
+        "sidebar_collapsed": False,
+        "time_zone": "Asia/Kolkata",
+    }
+    assert stored_settings.time_zone == "US/Eastern"
 
 
 @pytest.mark.parametrize(
@@ -186,7 +184,7 @@ def test_put_settings_accepts_legacy_iana_time_zone_alias() -> None:
         {
             "manual_theme_id": "workday",
             "sidebar_collapsed": False,
-            "time_zone": "UTC",
+            "time_zone": "Asia/Kolkata",
         },
         {
             "manual_theme_id": None,
@@ -196,12 +194,17 @@ def test_put_settings_accepts_legacy_iana_time_zone_alias() -> None:
         {
             "manual_theme_id": None,
             "sidebar_collapsed": False,
+            "time_zone": "UTC",
+        },
+        {
+            "manual_theme_id": None,
+            "sidebar_collapsed": False,
             "time_zone": "x" * 65,
         },
         {
             "manual_theme_id": None,
             "sidebar_collapsed": "false",
-            "time_zone": "UTC",
+            "time_zone": "Asia/Kolkata",
         },
         {
             "manual_theme_id": None,
@@ -210,7 +213,7 @@ def test_put_settings_accepts_legacy_iana_time_zone_alias() -> None:
         {
             "manual_theme_id": None,
             "sidebar_collapsed": False,
-            "time_zone": "UTC",
+            "time_zone": "Asia/Kolkata",
             "user_id": str(TEST_USER_ID),
         },
     ],

@@ -15,6 +15,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from app.api.dependencies import get_authenticated_user
 from app.api.routes import tasks as task_routes
 from app.core.security import AuthenticatedUser
+from app.core.time_zones import V1_TIME_ZONE_NAME
 from app.db.session import get_database_session
 from app.main import app
 from app.models import Category, Task
@@ -70,7 +71,7 @@ def create_task_request(category: Category, **overrides: Any) -> dict[str, Any]:
         "title": "Write release notes",
         "scheduled_date": "2026-10-23",
         "start_time": "09:00",
-        "schedule_time_zone": "UTC",
+        "schedule_time_zone": V1_TIME_ZONE_NAME,
         "planned_minutes": 90,
         "reminder_enabled": True,
         "reminder_minutes_before": 15,
@@ -246,29 +247,17 @@ def test_create_task_uses_owned_category_and_records_activity(
     assert "ON CONFLICT" in str(activity_statement.compile(dialect=postgresql.dialect()))
 
 
-def test_create_task_accepts_legacy_iana_time_zone_alias(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(task_routes, "get_current_time", lambda: FIXED_NOW)
+def test_create_task_rejects_noncanonical_india_time_zone() -> None:
     category = create_category()
-    database_session = AsyncMock(spec=AsyncSession)
-    database_session.execute.side_effect = [
-        MagicMock(),
-        scalar_result(category),
-        task_list_result([]),
-        MagicMock(),
-    ]
 
     response = send_task_request(
         "POST",
-        database_session=database_session,
+        database_session=AsyncMock(spec=AsyncSession),
         json=create_task_request(category, schedule_time_zone="Asia/Calcutta"),
     )
 
-    assert response.status_code == 201
-    created_task = database_session.add.call_args.args[0]
-    assert created_task.schedule_time_zone == "Asia/Calcutta"
-    assert response.json()["schedule_time_zone"] == "Asia/Calcutta"
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
 
 
 def test_create_task_hides_missing_or_foreign_owned_category() -> None:
@@ -434,6 +423,34 @@ def test_update_task_rechecks_strict_reschedule_cutoff(monkeypatch: pytest.Monke
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "task_reschedule_unavailable"
+
+
+def test_reschedule_cutoff_uses_ist_for_legacy_timezone_metadata() -> None:
+    category = create_category()
+    task = create_task(category, start_time=time(14, 0))
+    assert task.schedule_time_zone == "UTC"
+
+    assert task_routes.is_reschedule_allowed(
+        task,
+        datetime(2026, 10, 23, 7, 29, 59, tzinfo=UTC),
+    )
+    assert not task_routes.is_reschedule_allowed(
+        task,
+        datetime(2026, 10, 23, 7, 30, tzinfo=UTC),
+    )
+
+
+def test_activity_date_uses_ist_for_legacy_timezone_metadata() -> None:
+    task = create_task(create_category())
+
+    assert task_routes.local_activity_date(
+        task,
+        datetime(2026, 10, 23, 18, 29, 59, tzinfo=UTC),
+    ) == date(2026, 10, 23)
+    assert task_routes.local_activity_date(
+        task,
+        datetime(2026, 10, 23, 18, 30, tzinfo=UTC),
+    ) == date(2026, 10, 24)
 
 
 def test_rescheduling_partial_task_keeps_exactly_half_progress(

@@ -66,7 +66,7 @@ def send_activity_request(
     ("method", "path", "request_body"),
     [
         ("GET", "/api/v1/activity", None),
-        ("POST", "/api/v1/activity/review", {"time_zone": "UTC"}),
+        ("POST", "/api/v1/activity/review", {"time_zone": "Asia/Kolkata"}),
     ],
 )
 def test_activity_endpoints_require_authentication(
@@ -121,9 +121,7 @@ def test_get_activity_returns_owned_dates_and_completion_events_in_order() -> No
     assert TEST_USER_ID in compiled_activity_query.params.values()
     assert TEST_USER_ID in compiled_completion_query.params.values()
     assert "ORDER BY public.activity_days.activity_date" in str(compiled_activity_query)
-    assert "ORDER BY public.completion_events.completed_at" in str(
-        compiled_completion_query
-    )
+    assert "ORDER BY public.completion_events.completed_at" in str(compiled_completion_query)
 
 
 def test_get_activity_returns_empty_collections() -> None:
@@ -140,7 +138,7 @@ def test_get_activity_returns_empty_collections() -> None:
     assert response.json() == {"activity_dates": [], "completion_events": []}
 
 
-def test_confirm_review_records_browser_local_date_idempotently(
+def test_confirm_review_records_ist_date_idempotently(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     current_time = datetime(2026, 10, 23, 22, 30, tzinfo=UTC)
@@ -165,10 +163,18 @@ def test_confirm_review_records_browser_local_date_idempotently(
     assert date(2026, 10, 24) in compiled_statement.params.values()
 
 
-def test_confirm_review_accepts_legacy_alias_and_uses_its_local_date(
+@pytest.mark.parametrize(
+    ("current_time", "expected_date"),
+    [
+        (datetime(2026, 10, 23, 18, 29, 59, tzinfo=UTC), "2026-10-23"),
+        (datetime(2026, 10, 23, 18, 30, tzinfo=UTC), "2026-10-24"),
+    ],
+)
+def test_confirm_review_changes_date_at_ist_midnight(
     monkeypatch: pytest.MonkeyPatch,
+    current_time: datetime,
+    expected_date: str,
 ) -> None:
-    current_time = datetime(2026, 10, 24, 3, 30, tzinfo=UTC)
     monkeypatch.setattr(activity_routes, "get_current_time", lambda: current_time)
     database_session = AsyncMock(spec=AsyncSession)
     database_session.execute.side_effect = [MagicMock(), MagicMock()]
@@ -177,11 +183,11 @@ def test_confirm_review_accepts_legacy_alias_and_uses_its_local_date(
         "POST",
         "/api/v1/activity/review",
         database_session=database_session,
-        json={"time_zone": "Canada/Eastern"},
+        json={"time_zone": "Asia/Kolkata"},
     )
 
     assert response.status_code == 200
-    assert response.json() == {"activity_date": "2026-10-23"}
+    assert response.json() == {"activity_date": expected_date}
 
 
 @pytest.mark.parametrize(
@@ -190,6 +196,8 @@ def test_confirm_review_accepts_legacy_alias_and_uses_its_local_date(
         {},
         {"time_zone": ""},
         {"time_zone": "Not/AZone"},
+        {"time_zone": "UTC"},
+        {"time_zone": "Asia/Calcutta"},
         {"time_zone": "UTC", "activity_date": "2026-10-23"},
     ],
 )
