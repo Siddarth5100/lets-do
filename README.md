@@ -2,124 +2,147 @@
 
 **Plan it. Do it. Feel good.**
 
-Let's Do is a responsive daily planner for scheduling tasks, tracking meaningful progress, and building separate planning and completion streaks. The repository contains the v1 React frontend and the initial FastAPI backend foundation.
+Let's Do is an authenticated daily planner for scheduling work, tracking meaningful progress, and maintaining separate activity and completion streaks. PostgreSQL is the authoritative planner store; the React frontend accesses it through the FastAPI API using Supabase Auth access tokens.
 
 ## Current v1
 
 - Today dashboard with categorized tasks, live time remaining, progress, and streaks
-- Calendar and Review Plan views for inspecting scheduled days
-- Task creation, editing, deletion, outcomes, importance, categories, and rescheduling
-- Duration-weighted scoring and explicit activity/completion history
-- Seven weekday themes and responsive desktop/mobile navigation
-- Versioned browser persistence with no account required
+- Calendar and Review Plan views with overnight and multi-day scheduling
+- Task creation, editing, deletion, importance, outcomes, and cutoff-based rescheduling
+- Custom categories, weekday themes, persisted settings, and responsive navigation
+- Duration-weighted scoring with explicit Pending, Partial, Completed, and Incomplete outcomes
+- Signup, email confirmation and resend, login, session restoration, logout, and password recovery
+- User-confirmed import of legacy browser planner data
+- Per-user PostgreSQL isolation through authenticated API ownership checks and row-level security
 
-## Repository Structure
+V1 scheduling uses `Asia/Kolkata`. Task schedules retain their wall-clock date, time, and time-zone metadata, while completion and audit timestamps are stored as UTC-aware timestamps.
+
+## Architecture
+
+```text
+Cloudflare Pages (React)
+   ├── Supabase Auth (sessions, signup, confirmation, recovery)
+   └── Render Singapore (FastAPI)
+          ├── Supabase JWKS (ES256 token verification)
+          └── Supabase PostgreSQL Singapore
+                 └── restricted lets_do_api role + per-user RLS
+```
+
+Production services:
+
+- Frontend: <https://lets-do.pages.dev>
+- API: <https://lets-do-api.onrender.com>
+- Database and authentication: Supabase Singapore
+- Current production deployment branch: `feat/frontend-integration`
+
+Development uses a separate Supabase Sydney project. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the deployment and environment checklist.
+
+## Repository structure
 
 ```text
 .
-├── backend/     # FastAPI, SQLAlchemy, PostgreSQL, Alembic, and pytest foundation
-├── frontend/    # React, TypeScript, Vite, Tailwind CSS, and Vitest application
-└── AGENTS.md    # Development workflow and project conventions
+├── backend/              # FastAPI, SQLAlchemy, PostgreSQL, Alembic, and pytest
+├── frontend/             # React, TypeScript, Vite, Tailwind CSS, and Vitest
+├── docs/
+│   ├── DEPLOYMENT.md     # Production configuration and release checks
+│   └── PROJECT_STATUS.md # Handover, pending work, and technical decisions
+└── AGENTS.md             # Development workflow and project conventions
 ```
 
-## Frontend
+Detailed documentation:
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+- [Frontend setup and architecture](frontend/README.md)
+- [Backend setup, APIs, database, and security](backend/README.md)
+- [Production deployment](docs/DEPLOYMENT.md)
+- [Project status and handover](docs/PROJECT_STATUS.md)
+- [Opt-in Supabase security tests](backend/tests/integration/README.md)
 
-Run the v1 quality checks from `frontend/`:
-
-```bash
-npm test
-npm run lint
-./node_modules/.bin/tsc -p tsconfig.app.json --noEmit
-npm run build
-```
-
-## Core v1 Rules
-
-- Tasks earn `max(1, plannedMinutes / 60)` possible points. Earned points are proportional to completed minutes, capped at the planned duration.
-- Partial records exactly 50% progress; Completed records full progress; Incomplete records zero progress after confirmation.
-- Overnight and multi-day schedules participate in overlap detection and daily availability without double-counting overlapping time.
-- Planner data is versioned in `localStorage`. Per-tab navigation state is kept separately in `sessionStorage`.
-
-See [frontend/README.md](frontend/README.md) for the architecture, commands, business rules, storage behavior, and current limitations.
-
-## Backend
-
-The backend provides application and database health checks, environment-based configuration, async SQLAlchemy session management, Alembic migration infrastructure, structured API errors, and Supabase access-token verification. Planner tables, task APIs, and frontend integration remain deferred.
+## Local setup
 
 Prerequisites:
 
-- Python 3.12 or newer
-- A PostgreSQL database, such as a Supabase PostgreSQL project
+- Node.js `^20.19.0` or `>=22.12.0` and npm
+- Python 3.12
+- A development Supabase project with PostgreSQL and ES256 Auth signing keys
 
-Create the local environment from `backend/`:
+Start the backend:
 
 ```bash
 cd backend
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
 cp .env.example .env
-```
-
-Set these values in `.env`:
-
-- `DATABASE_URL`: the restricted FastAPI runtime connection for the manually created `lets_do_api` role.
-- `MIGRATION_DATABASE_URL`: a privileged direct or session connection used only by Alembic.
-- `SUPABASE_URL`: the public project URL, such as `https://your-project-reference.supabase.co`.
-- `SUPABASE_JWT_AUDIENCE`: normally `authenticated`.
-
-The Supabase project must use an active ES256 asymmetric signing key. The backend reads public verification keys from the project's JWKS endpoint; no JWT secret or service-role key is required. Do not commit `.env` or database credentials.
-
-Before applying planner migrations, create the `lets_do_api` role manually as a login role
-with `NOINHERIT`, `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOREPLICATION`, and
-`NOBYPASSRLS`.
-The role must not own planner tables or inherit from the migration owner. Apply these shared-schema
-permissions separately as an administrator; Alembic intentionally does not manage them:
-
-```sql
-REVOKE CREATE ON SCHEMA public FROM lets_do_api;
-GRANT USAGE ON SCHEMA public TO lets_do_api;
-```
-
-The planner migration grants table-level access to this role and enables per-user RLS. Create the
-role before running Alembic, and never start FastAPI with the privileged migration connection.
-
-Start the API:
-
-```bash
+# Configure the development database and Supabase values in .env.
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-Available health endpoints:
+The restricted runtime role and migration role must be prepared before applying migrations. Follow [backend/README.md](backend/README.md#database-roles-and-migrations); never run the API with migration-owner credentials.
 
-- `GET /health` checks that the API process is responding.
-- `GET /health/database` executes `SELECT 1` against PostgreSQL and returns HTTP 503 if the database cannot be reached.
-
-The protected identity endpoint accepts a Supabase access token:
+Start the frontend in another terminal:
 
 ```bash
-curl http://localhost:8000/api/v1/auth/me \
-  -H "Authorization: Bearer <supabase-access-token>"
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev
 ```
 
-It verifies the ES256 signature, issuer, audience, expiration, token type, authenticated role, and user UUID before returning limited identity information. The health endpoints remain public.
+The Vite development server proxies `/api` to the configured local backend.
 
-Run backend checks from `backend/`:
+## Core business rules
+
+- Maximum task points are `max(1, plannedMinutes / 60)`.
+- Earned points are proportional to completed minutes and never exceed maximum points.
+- Partial records exactly 50% of the planned duration and points.
+- Completed records full progress and create a completion event when the task is not future-dated.
+- Incomplete records zero progress after explicit confirmation.
+- Scheduled time passing never awards points or changes the stored outcome.
+- Duplicate names and schedule overlaps produce warnings that require explicit confirmation.
+- Overlapping allocations are merged when calculating available time.
+- Rescheduling is allowed only before one hour prior to the original scheduled start.
+- Activity and completion streaks are independent and use India calendar dates.
+
+## Persistence and isolation
+
+- PostgreSQL is the authoritative source for tasks, categories, settings, activity days, and completion events.
+- Task versions provide optimistic concurrency protection across sessions and devices.
+- Every authenticated database transaction sets `app.current_user_id` locally from the verified JWT user UUID; PostgreSQL RLS uses it for ownership isolation.
+- Legacy planner state under `lets-do.planner.v1` remains in `localStorage` and is imported only after user preview and confirmation. Importing never deletes the browser copy or existing server data.
+- Active view and Review Plan date use `sessionStorage` under `lets-do.navigation.v1`; they survive refresh in one tab but do not carry into a fresh tab.
+
+## Verification
+
+Backend:
 
 ```bash
-pytest
-ruff check app tests
+cd backend
+.venv/bin/pytest
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
+.venv/bin/pip check
 ```
 
-Alembic contains the initial planner-table migration. A reachable database is required for Alembic commands and the live database health endpoint. Automated tests compile the migration as PostgreSQL SQL, use substituted database and signing-key providers, generate temporary ES256 keys in memory, and do not require Supabase credentials or network access.
+Frontend:
 
-## Planned Beyond v1
+```bash
+cd frontend
+npm test
+npm run lint
+npx tsc -b --pretty false
+npm run build
+```
 
-React authentication flows, planner database models and APIs, frontend integration, cross-device synchronization, recurring routines, rest days, and real notification delivery remain future work.
+The regular backend suite is isolated from live Supabase resources. Live cross-user security checks are opt-in and documented separately.
+
+## Known limitations
+
+- V1 supports India (`Asia/Kolkata`) scheduling only; multi-time-zone accounts are deferred.
+- Reminder preferences are stored, but notifications are not delivered.
+- Recurring routines, streak-pausing rest days, cancellation, and overdue automation are not implemented.
+- Navigation is state-based rather than URL-routed, so views do not have shareable URLs or browser-history navigation.
+- Category rename/delete APIs exist, but the current frontend exposes category creation only.
+- Render's free tier can introduce backend cold-start latency.
+- Production email delivery is not ready until a verified sending domain and production SMTP configuration replace Resend's testing-domain restrictions.
+- The automated live multi-user isolation suite still needs to be run against the designated development Supabase project with disposable accounts.

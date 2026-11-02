@@ -7,9 +7,9 @@ Tagline: Plan it. Do it. Feel good.
 
 ## Technology
 - Frontend: React, TypeScript, Vite, Tailwind CSS
-- Backend (planned): Python, FastAPI
-- Database (planned): PostgreSQL
-- Authentication (planned): Supabase Auth
+- Backend: Python, FastAPI
+- Database: PostgreSQL
+- Authentication: Supabase Auth
 
 ## Agent Workflow
 1. Read this file before starting any task.
@@ -29,6 +29,15 @@ Tagline: Plan it. Do it. Feel good.
 - Do not introduce unnecessary frameworks or infrastructure.
 - Never expose or commit credentials, secrets, or `.env` files.
 - Ask before making architectural changes.
+
+## Documentation
+- Keep relevant project documentation updated as part of every completed change, following AGENTS.md.
+- Update documentation whenever features, APIs, architecture, configuration, database behavior, tests, deployment, or important technical decisions change.
+- Include documentation updates in the same change or pull request as the implementation.
+- Keep `docs/PROJECT_STATUS.md` current with completed, pending, and deferred work.
+- Never document unimplemented features as completed.
+- Never include secrets or credentials in documentation.
+- Do not remove existing accurate documentation.
 
 ## Code Quality
 - Use TypeScript with clear types.
