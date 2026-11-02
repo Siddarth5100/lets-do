@@ -3,6 +3,7 @@ import { fromLocalDateKey } from './dates'
 import { getCompletionState } from './taskMetrics'
 
 export const STORAGE_KEY = 'lets-do.planner.v1'
+export const LEGACY_OWNER_STORAGE_KEY = 'lets-do.planner.owner.v1'
 export const NAVIGATION_STORAGE_KEY = 'lets-do.navigation.v1'
 
 export interface NavigationState {

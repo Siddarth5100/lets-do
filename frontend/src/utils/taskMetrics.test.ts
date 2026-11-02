@@ -59,7 +59,7 @@ describe('partial completion', () => {
 })
 
 describe('calendar-day streaks', () => {
-  const today = new Date(2026, 9, 21, 15, 30)
+  const today = new Date('2026-10-21T10:00:00Z')
 
   it('does not break an active streak while today is in progress', () => {
     expect(getCurrentStreak(['2026-10-19', '2026-10-20'], today)).toBe(2)
@@ -79,11 +79,11 @@ describe('calendar-day streaks', () => {
   })
 
   it('derives completion dates from timestamps independently of activity dates', () => {
-    const timestamp = new Date(2026, 9, 20, 23, 30).toISOString()
     expect(completionDatesFromEvents([
-      { id: 'valid', taskId: 'task-1', completedAt: timestamp },
+      { id: 'before-midnight', taskId: 'task-1', completedAt: '2026-10-20T18:29:59Z' },
+      { id: 'after-midnight', taskId: 'task-2', completedAt: '2026-10-20T18:30:00Z' },
       { id: 'invalid', taskId: null, completedAt: 'invalid' },
-    ])).toEqual(['2026-10-20'])
+    ])).toEqual(['2026-10-20', '2026-10-21'])
   })
 
   it('does not record a future planned task as a completion-streak event', () => {

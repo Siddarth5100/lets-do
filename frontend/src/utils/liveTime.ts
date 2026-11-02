@@ -1,3 +1,5 @@
+import { getV1DateTimeParts } from './timeZones'
+
 const SECONDS_PER_MINUTE = 60
 const SECONDS_PER_HOUR = 60 * SECONDS_PER_MINUTE
 
@@ -6,12 +8,15 @@ function padTimePart(value: number): string {
 }
 
 export function formatDigitalClock(date: Date): string {
-  return [date.getHours(), date.getMinutes(), date.getSeconds()].map(padTimePart).join(':')
+  const { hours, minutes, seconds } = getV1DateTimeParts(date)
+  return [hours, minutes, seconds].map(padTimePart).join(':')
 }
 
-export function getSecondsUntilLocalMidnight(date: Date): number {
-  const nextMidnight = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1)
-  return Math.max(0, Math.ceil((nextMidnight.getTime() - date.getTime()) / 1000))
+export function getSecondsUntilV1Midnight(date: Date): number {
+  const { hours, minutes, seconds } = getV1DateTimeParts(date)
+  return 24 * SECONDS_PER_HOUR - (
+    hours * SECONDS_PER_HOUR + minutes * SECONDS_PER_MINUTE + seconds
+  )
 }
 
 export function formatRemainingTime(totalSeconds: number): string {

@@ -1,5 +1,4 @@
 from typing import Annotated, Literal
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
@@ -9,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import get_authenticated_database_session, get_authenticated_user
 from app.core.security import AuthenticatedUser
+from app.core.time_zones import V1_TIME_ZONE_NAME, validate_v1_time_zone
 from app.models import UserSettings
 
 ThemeId = Literal[
@@ -34,11 +34,7 @@ class UserSettingsRepresentation(BaseModel):
     @field_validator("time_zone")
     @classmethod
     def validate_time_zone(cls, time_zone: str) -> str:
-        try:
-            ZoneInfo(time_zone)
-        except (ValueError, ZoneInfoNotFoundError):
-            raise ValueError("time_zone must be a valid IANA time zone") from None
-        return time_zone
+        return validate_v1_time_zone(time_zone, "time_zone")
 
 
 def create_settings_response(settings: UserSettings | None) -> UserSettingsRepresentation:
@@ -46,13 +42,15 @@ def create_settings_response(settings: UserSettings | None) -> UserSettingsRepre
         return UserSettingsRepresentation(
             manual_theme_id=None,
             sidebar_collapsed=False,
-            time_zone="UTC",
+            time_zone=V1_TIME_ZONE_NAME,
         )
 
     return UserSettingsRepresentation(
         manual_theme_id=settings.manual_theme_id,
         sidebar_collapsed=settings.sidebar_collapsed,
-        time_zone=settings.time_zone,
+        # Existing rows may contain a legacy zone. V1 has one effective zone and
+        # normalizes the stored value the next time the user changes a setting.
+        time_zone=V1_TIME_ZONE_NAME,
     )
 
 

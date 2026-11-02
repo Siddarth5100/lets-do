@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { CompletionEvent, Task } from '../../types/planner'
-import { formatDigitalClock, formatRemainingTime, getSecondsUntilLocalMidnight } from '../../utils/liveTime'
+import { formatDigitalClock, formatRemainingTime, getSecondsUntilV1Midnight } from '../../utils/liveTime'
 import { completionDatesFromEvents, getCurrentStreak, getTaskTotals } from '../../utils/taskMetrics'
+import { getV1DateTimeParts } from '../../utils/timeZones'
 import { Icon } from '../ui/Icon'
 
 interface DashboardStatsProps {
@@ -17,7 +18,7 @@ export function DashboardStats({ tasks, activityDates, completionEvents }: Dashb
   const scheduledHours = totals.plannedMinutes / 60
   const activityStreak = getCurrentStreak(activityDates)
   const completionStreak = getCurrentStreak(completionDatesFromEvents(completionEvents))
-  const timeRemaining = formatRemainingTime(getSecondsUntilLocalMidnight(currentTime))
+  const timeRemaining = formatRemainingTime(getSecondsUntilV1Midnight(currentTime))
 
   useEffect(() => {
     const clockInterval = window.setInterval(() => setCurrentTime(new Date()), 1000)
@@ -60,9 +61,10 @@ function TimeRemainingCard({ timeRemaining, currentTime, detail }: { timeRemaini
 }
 
 function AnalogClock({ currentTime }: { currentTime: Date }) {
-  const seconds = currentTime.getSeconds()
-  const minutes = currentTime.getMinutes()
-  const hours = currentTime.getHours() % 12
+  const v1Time = getV1DateTimeParts(currentTime)
+  const seconds = v1Time.seconds
+  const minutes = v1Time.minutes
+  const hours = v1Time.hours % 12
   const secondHandAngle = seconds * 6
   const minuteHandAngle = minutes * 6 + seconds * 0.1
   const hourHandAngle = hours * 30 + minutes * 0.5 + seconds / 120

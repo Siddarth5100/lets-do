@@ -6,13 +6,13 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 from sqlalchemy import and_, delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.api.dependencies import get_authenticated_database_session, get_authenticated_user
 from app.core.errors import (
@@ -21,8 +21,10 @@ from app.core.errors import (
     TaskRescheduleUnavailableError,
     TaskSchedulingWarningError,
     TaskTransitionError,
+    TaskVersionConflictError,
 )
 from app.core.security import AuthenticatedUser
+from app.core.time_zones import V1_TIME_ZONE, get_v1_date, validate_v1_time_zone
 from app.models import ActivityDay, Category, CompletionEvent, Task
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
@@ -54,13 +56,7 @@ def normalize_title(title: str) -> str:
 
 
 def validate_time_zone(time_zone: str) -> str:
-    if len(time_zone) > 64:
-        raise ValueError("schedule_time_zone must contain at most 64 characters")
-    try:
-        ZoneInfo(time_zone)
-    except (ValueError, ZoneInfoNotFoundError):
-        raise ValueError("schedule_time_zone must be a valid IANA time zone") from None
-    return time_zone
+    return validate_v1_time_zone(time_zone, "schedule_time_zone")
 
 
 def validate_start_time(start_time: str) -> str:
@@ -112,6 +108,7 @@ class TaskCreateRequest(BaseModel):
 class TaskUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    version: int = Field(ge=1)
     category_id: UUID | None = None
     title: str | None = Field(default=None, min_length=1, max_length=200)
     scheduled_date: date | None = None
@@ -158,6 +155,7 @@ class TaskUpdateRequest(BaseModel):
 class TaskCompletionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    version: int = Field(ge=1)
     action: Literal["complete", "toggle_partial", "mark_incomplete", "reopen"]
     confirm_warnings: StrictBool = False
 
@@ -277,13 +275,20 @@ def is_reschedule_allowed(task: Task, current_time: datetime) -> bool:
     scheduled_start = datetime.combine(
         task.scheduled_date,
         task.start_time,
-        tzinfo=ZoneInfo(task.schedule_time_zone),
+        tzinfo=V1_TIME_ZONE,
     )
-    return current_time.astimezone(scheduled_start.tzinfo) < scheduled_start - timedelta(hours=1)
+    return current_time.astimezone(V1_TIME_ZONE) < scheduled_start - timedelta(hours=1)
 
 
 def local_activity_date(task: Task, current_time: datetime) -> date:
-    return current_time.astimezone(ZoneInfo(task.schedule_time_zone)).date()
+    # V1 preserves every stored wall-clock date/time and interprets legacy zone
+    # metadata as an India schedule without rewriting existing rows.
+    return get_v1_date(current_time)
+
+
+def ensure_task_version(task: Task, supplied_version: int) -> None:
+    if task.version != supplied_version:
+        raise TaskVersionConflictError
 
 
 async def get_owned_category(
@@ -415,12 +420,13 @@ async def create_task(
         start_time=start_time,
         planned_minutes=task_request.planned_minutes,
     )
-    warnings = find_scheduling_warnings(
-        candidate,
-        await get_owned_tasks(database_session, user_id),
-    )
-    if warnings and not task_request.confirm_warnings:
-        raise TaskSchedulingWarningError(warnings)
+    if not task_request.confirm_warnings:
+        warnings = find_scheduling_warnings(
+            candidate,
+            await get_owned_tasks(database_session, user_id),
+        )
+        if warnings:
+            raise TaskSchedulingWarningError(warnings)
 
     current_time = get_current_time()
     task = Task(
@@ -465,6 +471,7 @@ async def update_task(
 ) -> TaskResponse:
     user_id = authenticated_user.user_id
     task, category = await get_owned_task(database_session, user_id, task_id)
+    ensure_task_version(task, task_request.version)
     supplied_fields = task_request.model_fields_set & EDITABLE_FIELDS
     schedule_changed = any(
         field_name in supplied_fields
@@ -504,12 +511,12 @@ async def update_task(
     )
     # The star control updates importance directly in the frontend and does not reopen
     # the task form's duplicate/overlap confirmation flow.
-    if supplied_fields != {"important"}:
+    if not task_request.confirm_warnings and supplied_fields != {"important"}:
         warnings = find_scheduling_warnings(
             candidate,
             await get_owned_tasks(database_session, user_id),
         )
-        if warnings and not task_request.confirm_warnings:
+        if warnings:
             raise TaskSchedulingWarningError(warnings)
 
     for field_name in supplied_fields:
@@ -524,7 +531,10 @@ async def update_task(
         elif task.completion_state == "completed":
             task.actual_completed_minutes = Decimal(task.planned_minutes)
     task.updated_at = current_time
-    await database_session.flush()
+    try:
+        await database_session.flush()
+    except StaleDataError as error:
+        raise TaskVersionConflictError from error
     await record_activity(
         database_session,
         user_id,
@@ -546,6 +556,7 @@ async def update_task_completion(
 ) -> TaskResponse:
     user_id = authenticated_user.user_id
     task, category = await get_owned_task(database_session, user_id, task_id)
+    ensure_task_version(task, completion_request.version)
     current_time = get_current_time()
     activity_date = local_activity_date(task, current_time)
     action = completion_request.action
@@ -597,22 +608,26 @@ async def update_task_completion(
             start_time=task.start_time,
             planned_minutes=task.planned_minutes,
         )
-        warnings = find_scheduling_warnings(
-            candidate,
-            await get_owned_tasks(database_session, user_id),
-        )
-        overlap_warnings = {
-            key: value for key, value in warnings.items() if key == "overlapping_tasks"
-        }
-        if overlap_warnings and not completion_request.confirm_warnings:
-            raise TaskSchedulingWarningError(overlap_warnings)
+        if not completion_request.confirm_warnings:
+            warnings = find_scheduling_warnings(
+                candidate,
+                await get_owned_tasks(database_session, user_id),
+            )
+            overlap_warnings = {
+                key: value for key, value in warnings.items() if key == "overlapping_tasks"
+            }
+            if overlap_warnings:
+                raise TaskSchedulingWarningError(overlap_warnings)
         task.actual_completed_minutes = Decimal("0")
         task.completion_state = "pending"
         task.completed_at = None
         await remove_completion_event(database_session, user_id, task.id)
 
     task.updated_at = current_time
-    await database_session.flush()
+    try:
+        await database_session.flush()
+    except StaleDataError as error:
+        raise TaskVersionConflictError from error
     await record_activity(database_session, user_id, activity_date, current_time)
     return create_task_response(task, category)
 
@@ -620,21 +635,22 @@ async def update_task_completion(
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_task(
     task_id: UUID,
+    version: Annotated[int, Query(ge=1)],
     authenticated_user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
     database_session: Annotated[
         AsyncSession,
         Depends(get_authenticated_database_session),
     ],
 ) -> Response:
-    statement = (
-        delete(Task)
-        .where(
-            Task.id == task_id,
-            Task.user_id == authenticated_user.user_id,
-        )
-        .returning(Task.id)
+    task, _category = await get_owned_task(
+        database_session,
+        authenticated_user.user_id,
+        task_id,
     )
-    deleted_task_id = (await database_session.execute(statement)).scalar_one_or_none()
-    if deleted_task_id is None:
-        raise TaskNotFoundError
+    ensure_task_version(task, version)
+    await database_session.delete(task)
+    try:
+        await database_session.flush()
+    except StaleDataError as error:
+        raise TaskVersionConflictError from error
     return Response(status_code=status.HTTP_204_NO_CONTENT)

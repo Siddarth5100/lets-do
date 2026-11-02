@@ -62,7 +62,12 @@ describe('task overlap detection', () => {
   })
 
   it('detects overlaps that cross midnight', () => {
-    const lateTask = { ...baseTask, startTime: '23:30', plannedMinutes: 90 }
+    const lateTask = {
+      ...baseTask,
+      startTime: '23:30',
+      plannedMinutes: 90,
+      scheduleTimeZone: 'UTC',
+    }
     const afterMidnight = createDraft({ date: '2026-10-22', startTime: '00:30' })
     expect(findOverlappingTasks(afterMidnight, [lateTask])).toEqual([lateTask])
   })

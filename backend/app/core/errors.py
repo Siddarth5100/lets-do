@@ -143,6 +143,15 @@ class TaskTransitionError(ApplicationError):
         )
 
 
+class TaskVersionConflictError(ApplicationError):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=409,
+            code="task_version_conflict",
+            message="The task changed after it was loaded. Refresh it and try again.",
+        )
+
+
 def create_error_response(
     *,
     status_code: int,

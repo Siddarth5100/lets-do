@@ -1,5 +1,6 @@
 import type { CompletionEvent, CompletionState, Task } from '../types/planner'
-import { addLocalDays, fromLocalDateKey, localDateFromTimestamp, toLocalDateKey } from './dates'
+import { addDateKeyDays, fromLocalDateKey, localDateFromTimestamp } from './dates'
+import { getV1DateKey } from './timeZones'
 
 export function validatePlannedMinutes(plannedMinutes: number): void {
   if (!Number.isFinite(plannedMinutes) || plannedMinutes <= 0) {
@@ -55,16 +56,16 @@ export function getTaskTotals(tasks: Task[]) {
 }
 
 export function getCurrentStreak(qualifyingDates: string[], today = new Date()): number {
-  const todayKey = toLocalDateKey(today)
+  const todayKey = getV1DateKey(today)
   const validDates = new Set(
     qualifyingDates.filter((dateKey) => fromLocalDateKey(dateKey) && dateKey <= todayKey),
   )
-  let cursor = validDates.has(todayKey) ? new Date(today.getFullYear(), today.getMonth(), today.getDate()) : addLocalDays(today, -1)
+  let cursor = validDates.has(todayKey) ? todayKey : addDateKeyDays(todayKey, -1)
   let streak = 0
 
-  while (validDates.has(toLocalDateKey(cursor))) {
+  while (cursor && validDates.has(cursor)) {
     streak += 1
-    cursor = addLocalDays(cursor, -1)
+    cursor = addDateKeyDays(cursor, -1)
   }
 
   return streak
@@ -78,7 +79,7 @@ export function completionDatesFromEvents(events: CompletionEvent[]): string[] {
 }
 
 export function shouldRecordCompletion(taskDate: string, completedAt: Date): boolean {
-  return Boolean(fromLocalDateKey(taskDate)) && taskDate <= toLocalDateKey(completedAt)
+  return Boolean(fromLocalDateKey(taskDate)) && taskDate <= getV1DateKey(completedAt)
 }
 
 export function removeTaskCompletionEvents(events: CompletionEvent[], taskId: string): CompletionEvent[] {

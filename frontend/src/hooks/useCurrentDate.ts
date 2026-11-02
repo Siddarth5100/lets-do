@@ -1,15 +1,12 @@
 import { useEffect, useState } from 'react'
-import { getCurrentDate, toLocalDateKey } from '../utils/dates'
+import { getCurrentDate } from '../utils/dates'
+import { getSecondsUntilV1Midnight } from '../utils/liveTime'
+import { getV1DateKey } from '../utils/timeZones'
 
 const MIDNIGHT_TIMER_BUFFER_MILLISECONDS = 50
 
-function millisecondsUntilNextLocalDate(currentDate: Date): number {
-  const nextLocalDate = new Date(
-    currentDate.getFullYear(),
-    currentDate.getMonth(),
-    currentDate.getDate() + 1,
-  )
-  return nextLocalDate.getTime() - currentDate.getTime() + MIDNIGHT_TIMER_BUFFER_MILLISECONDS
+function millisecondsUntilNextV1Date(currentDate: Date): number {
+  return getSecondsUntilV1Midnight(currentDate) * 1000 + MIDNIGHT_TIMER_BUFFER_MILLISECONDS
 }
 
 export function useCurrentDate(): Date {
@@ -22,14 +19,14 @@ export function useCurrentDate(): Date {
       if (midnightTimeoutId !== undefined) window.clearTimeout(midnightTimeoutId)
       midnightTimeoutId = window.setTimeout(
         refreshCurrentDate,
-        millisecondsUntilNextLocalDate(referenceDate),
+        millisecondsUntilNextV1Date(referenceDate),
       )
     }
 
     const refreshCurrentDate = () => {
       const nextDate = getCurrentDate()
       setCurrentDate((existingDate) => (
-        toLocalDateKey(existingDate) === toLocalDateKey(nextDate) ? existingDate : nextDate
+        getV1DateKey(existingDate) === getV1DateKey(nextDate) ? existingDate : nextDate
       ))
       scheduleMidnightRefresh(nextDate)
     }

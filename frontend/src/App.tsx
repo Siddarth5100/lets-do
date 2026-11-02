@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
+import { ApiError } from './api/client'
+import { parseTaskSchedulingWarnings } from './api/planner'
 import { CalendarView } from './components/calendar/CalendarView'
 import { TodayView } from './components/dashboard/TodayView'
 import { BottomNavigation, DesktopNavigation } from './components/layout/Navigation'
@@ -13,10 +15,11 @@ import { getTheme, weekdayThemes } from './data/themes'
 import { useCurrentDate } from './hooks/useCurrentDate'
 import { usePlanner } from './hooks/usePlanner'
 import type { Task, TaskDraft, ViewName } from './types/planner'
-import { getCurrentDate, toLocalDateKey } from './utils/dates'
+import { getCurrentDate } from './utils/dates'
 import { loadNavigationState, saveNavigationState } from './utils/storage'
 import { getPartialCompletedMinutes } from './utils/taskMetrics'
 import { canRescheduleTask } from './utils/taskTime'
+import { getV1DateKey, getV1WeekdayIndex } from './utils/timeZones'
 import {
   findOverlappingTasks,
   findSameDayDuplicateTasks,
@@ -27,7 +30,7 @@ interface PendingTaskSave {
   draft: TaskDraft
   taskId: string | null
   duplicateNames: string[]
-  overlappingTasks: Task[]
+  overlappingDescriptions: string[]
 }
 
 type TaskFormMode = 'add' | 'edit' | 'reschedule'
@@ -43,7 +46,7 @@ type ActiveModalName =
 export default function App() {
   const planner = usePlanner()
   const currentDate = useCurrentDate()
-  const today = toLocalDateKey(currentDate)
+  const today = getV1DateKey(currentDate)
   const [navigationState, setNavigationState] = useState(() => {
     if (typeof window === 'undefined') {
       return { activeView: 'today' as ViewName, selectedDate: today }
@@ -60,9 +63,12 @@ export default function App() {
   const [rescheduleUnavailableTask, setRescheduleUnavailableTask] = useState<Task | null>(null)
   const [pendingTaskSave, setPendingTaskSave] = useState<PendingTaskSave | null>(null)
   const [pendingReopenTask, setPendingReopenTask] = useState<Task | null>(null)
-  const [reviewMessageVisible, setReviewMessageVisible] = useState(false)
-  const automaticTheme = weekdayThemes[currentDate.getDay()]
-  const theme = getTheme(planner.state.settings.manualThemeId, currentDate.getDay())
+  const [pendingReopenDescriptions, setPendingReopenDescriptions] = useState<string[]>([])
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [reviewConfirmationVisible, setReviewConfirmationVisible] = useState(false)
+  const currentWeekday = getV1WeekdayIndex(currentDate)
+  const automaticTheme = weekdayThemes[currentWeekday]
+  const theme = getTheme(planner.state.settings.manualThemeId, currentWeekday)
   const themeStyle = {
     '--accent': theme.accent,
     '--accent-strong': theme.accentStrong,
@@ -84,6 +90,7 @@ export default function App() {
   }
 
   const openNewTaskForm = (date = today) => {
+    setActionError(null)
     setFormDate(date)
     setEditingTask(null)
     setTaskFormMode('add')
@@ -91,8 +98,8 @@ export default function App() {
   }
 
   const openTaskEditor = (task: Task) => {
+    setActionError(null)
     setEditingTask(task)
-    setFormDate(task.date)
     setTaskFormMode('edit')
     setFormOpen(true)
   }
@@ -104,12 +111,12 @@ export default function App() {
   }
 
   const requestTaskReschedule = (task: Task) => {
+    setActionError(null)
     if (!canRescheduleTask(task.date, task.startTime)) {
       setRescheduleUnavailableTask(task)
       return
     }
     setEditingTask(task)
-    setFormDate(task.date)
     setTaskFormMode('reschedule')
     setFormOpen(true)
   }
@@ -125,18 +132,57 @@ export default function App() {
     return false
   }
 
-  const persistTaskDraft = (draft: TaskDraft, taskId: string | null) => {
+  const schedulingWarningFromError = (saveError: unknown, draft: TaskDraft, taskId: string | null) => {
+    if (!(saveError instanceof ApiError) || saveError.code !== 'task_scheduling_warning') return false
+    const warnings = parseTaskSchedulingWarnings(saveError.details)
+    if (!warnings) return false
+    const taskById = new Map(planner.state.tasks.map((task) => [task.id, task]))
+    setPendingTaskSave({
+      draft,
+      taskId,
+      duplicateNames: warnings.duplicateTasks.map((task) => task.title),
+      overlappingDescriptions: warnings.overlappingTasks.map((reference) => {
+        const task = taskById.get(reference.id)
+        return task ? `${task.title} — ${formatTaskTiming(task)}` : reference.title
+      }),
+    })
+    return true
+  }
+
+  const persistTaskDraft = async (
+    draft: TaskDraft,
+    taskId: string | null,
+    confirmWarnings = false,
+  ) => {
     if (!ensureRescheduleStillAllowed(taskId)) {
       setPendingTaskSave(null)
       return
     }
-    if (taskId) planner.updateTask(taskId, draft)
-    else planner.addTask(draft)
-    setPendingTaskSave(null)
-    closeTaskForm()
+    setActionError(null)
+    try {
+      if (taskId) await planner.updateTask(taskId, draft, taskFormMode === 'reschedule' ? 'reschedule' : 'edit', confirmWarnings)
+      else await planner.addTask(draft, confirmWarnings)
+      setPendingTaskSave(null)
+      closeTaskForm()
+    } catch (saveError) {
+      if (schedulingWarningFromError(saveError, draft, taskId)) return
+      if (saveError instanceof ApiError && saveError.code === 'task_reschedule_unavailable') {
+        const task = planner.state.tasks.find((candidate) => candidate.id === taskId)
+        if (task) setRescheduleUnavailableTask(task)
+        closeTaskForm()
+        return
+      }
+      if (saveError instanceof ApiError && saveError.code === 'task_version_conflict') {
+        closeTaskForm()
+        setActionError('This task changed on another device. The latest version has been loaded; review it and try again.')
+      } else {
+        setActionError(saveError instanceof Error ? saveError.message : 'The task could not be saved.')
+      }
+      throw saveError
+    }
   }
 
-  const requestTaskSave = (draft: TaskDraft) => {
+  const requestTaskSave = async (draft: TaskDraft) => {
     const taskId = editingTask?.id ?? null
     if (!ensureRescheduleStillAllowed(taskId)) return
 
@@ -156,36 +202,78 @@ export default function App() {
     )
 
     if (duplicateNames.length > 0 || overlappingTasks.length > 0) {
-      setPendingTaskSave({ draft: draftToSave, taskId, duplicateNames, overlappingTasks })
+      setPendingTaskSave({
+        draft: draftToSave,
+        taskId,
+        duplicateNames,
+        overlappingDescriptions: overlappingTasks.map((task) => `${task.title} — ${formatTaskTiming(task)}`),
+      })
       return
     }
-    persistTaskDraft(draftToSave, taskId)
+    await persistTaskDraft(draftToSave, taskId)
   }
 
-  const confirmReview = () => {
-    if (selectedDate !== toLocalDateKey(getCurrentDate())) return
-    planner.reviewPlan()
-    setReviewMessageVisible(true)
-    window.setTimeout(() => setReviewMessageVisible(false), 2500)
+  const confirmReview = async () => {
+    if (selectedDate !== getV1DateKey(getCurrentDate())) return
+    setActionError(null)
+    try {
+      await planner.confirmReview()
+      setReviewConfirmationVisible(true)
+      window.setTimeout(() => setReviewConfirmationVisible(false), 3000)
+    } catch (reviewError) {
+      setActionError(reviewError instanceof Error ? reviewError.message : 'The review could not be confirmed.')
+    }
+  }
+
+  const performTaskAction = async (action: () => Promise<unknown>) => {
+    setActionError(null)
+    try {
+      await action()
+    } catch (taskError) {
+      setActionError(taskError instanceof ApiError && taskError.code === 'task_version_conflict'
+        ? 'This task changed on another device. The latest version has been loaded; try again.'
+        : taskError instanceof Error ? taskError.message : 'The change could not be saved.')
+    }
+  }
+
+  const reopenTask = async (task: Task, confirmWarnings = false) => {
+    try {
+      await planner.reopenTask(task.id, confirmWarnings)
+      setPendingReopenTask(null)
+      setPendingReopenDescriptions([])
+    } catch (reopenError) {
+      if (reopenError instanceof ApiError && reopenError.code === 'task_scheduling_warning') {
+        const warnings = parseTaskSchedulingWarnings(reopenError.details)
+        const taskById = new Map(planner.state.tasks.map((currentTask) => [currentTask.id, currentTask]))
+        setPendingReopenDescriptions((warnings?.overlappingTasks ?? []).map((reference) => {
+          const overlappingTask = taskById.get(reference.id)
+          return overlappingTask
+            ? `${overlappingTask.title} — ${formatTaskTiming(overlappingTask)}`
+            : reference.title
+        }))
+        setPendingReopenTask(task)
+        return
+      }
+      throw reopenError
+    }
   }
 
   const requestTaskReopen = (task: Task) => {
-    const overlappingTasks = findOverlappingTasks(
-      { ...task, actualCompletedMinutes: 0 },
-      planner.state.tasks,
-      task.id,
+    const overlaps = findOverlappingTasks(
+      { ...task, actualCompletedMinutes: 0 }, planner.state.tasks, task.id,
     )
-    if (overlappingTasks.length > 0) {
+    if (overlaps.length > 0) {
+      setPendingReopenDescriptions(overlaps.map((overlap) => `${overlap.title} — ${formatTaskTiming(overlap)}`))
       setPendingReopenTask(task)
       return
     }
-    planner.reopenTask(task.id)
+    void performTaskAction(() => reopenTask(task))
   }
 
   const todayTasks = planner.state.tasks.filter((task) => task.date === today)
   const availableCategories = [
     ...defaultTaskCategories,
-    ...planner.state.customCategories,
+    ...planner.categories.map((category) => category.name),
     ...planner.state.tasks.map((task) => task.category),
   ].filter((category, index, categories) => (
     categories.findIndex((existingCategory) => (
@@ -195,12 +283,13 @@ export default function App() {
   const taskActions: TaskActionCallbacks = {
     onEdit: openTaskEditor,
     onDelete: setDeletingTask,
-    onToggleImportant: (task) => planner.toggleImportant(task.id),
-    onComplete: (task) => planner.completeTask(task.id),
-    onPartial: (task) => planner.toggleTaskPartial(task.id),
+    onToggleImportant: (task) => void performTaskAction(() => planner.toggleImportant(task.id)),
+    onComplete: (task) => void performTaskAction(() => planner.completeTask(task.id)),
+    onPartial: (task) => void performTaskAction(() => planner.toggleTaskPartial(task.id)),
     onMarkIncomplete: setPendingIncompleteTask,
     onReopen: requestTaskReopen,
     onReschedule: requestTaskReschedule,
+    isTaskPending: (task) => planner.pendingTaskIds.has(task.id),
   }
 
   let activeModal: ActiveModalName = formOpen ? 'task-form' : null
@@ -209,6 +298,14 @@ export default function App() {
   if (pendingIncompleteTask) activeModal = 'task-incomplete-confirmation'
   if (pendingReopenTask) activeModal = 'task-reopen-warning'
   if (pendingTaskSave) activeModal = 'task-save-warning'
+
+  if (planner.status === 'loading') {
+    return <PlannerLoadingState />
+  }
+
+  if (planner.status === 'error') {
+    return <PlannerErrorState message={planner.error} onRetry={() => void planner.retry()} />
+  }
 
   return (
     <div
@@ -221,19 +318,29 @@ export default function App() {
           activeView={activeView}
           sidebarCollapsed={planner.state.settings.sidebarCollapsed}
           onNavigate={navigateTo}
-          onToggleSidebar={() => planner.updateSettings({
+          onToggleSidebar={() => void performTaskAction(() => planner.updateSettings({
             ...planner.state.settings,
             sidebarCollapsed: !planner.state.settings.sidebarCollapsed,
-          })}
+          }))}
         />
         <main className="min-w-0 flex-1 px-4 pb-28 pt-7 sm:px-7 lg:px-10 lg:pb-12 lg:pt-10 xl:px-14">
           <div className="mx-auto max-w-7xl">
-            {planner.storageError && (
+            {actionError && (
+              <p className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700" role="alert">
+                {actionError}
+              </p>
+            )}
+            {planner.refreshing && (
+              <p className="mb-5 text-sm font-semibold text-slate-500" role="status">
+                Refreshing planner data…
+              </p>
+            )}
+            {planner.refreshError && (
               <p
                 className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700"
                 role="alert"
               >
-                Changes could not be saved to this browser. Check your storage settings or available space.
+                {planner.refreshError} Existing planner data is still shown.
               </p>
             )}
             {activeView === 'today' && (
@@ -264,7 +371,7 @@ export default function App() {
                 tasks={planner.state.tasks}
                 onSelectDate={selectReviewDate}
                 onBackToToday={() => navigateTo('today')}
-                onConfirmReview={confirmReview}
+                onConfirmReview={() => void confirmReview()}
                 {...taskActions}
               />
             )}
@@ -272,8 +379,13 @@ export default function App() {
               <SettingsView
                 settings={planner.state.settings}
                 automaticThemeId={automaticTheme.id}
-                onSave={planner.updateSettings}
+                onSave={(settings) => void performTaskAction(() => planner.updateSettings(settings))}
                 onOpenReview={() => navigateTo('review')}
+                saving={planner.savingSettings}
+                authenticatedUserId={planner.authenticatedUserId}
+                authenticatedUserEmail={planner.authenticatedUserEmail}
+                onPreviewBrowserData={planner.previewBrowserDataImport}
+                onCommitBrowserData={planner.commitBrowserDataImport}
               />
             )}
           </div>
@@ -321,13 +433,11 @@ export default function App() {
                 items={pendingTaskSave.duplicateNames}
               />
             )}
-            {pendingTaskSave.overlappingTasks.length > 0 && (
+            {pendingTaskSave.overlappingDescriptions.length > 0 && (
               <WarningList
                 title="Schedule overlap"
                 description="This time overlaps with scheduled tasks."
-                items={pendingTaskSave.overlappingTasks.map((task) => (
-                  `${task.title} — ${formatTaskTiming(task)}`
-                ))}
+                items={pendingTaskSave.overlappingDescriptions}
               />
             )}
             <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
@@ -341,7 +451,8 @@ export default function App() {
               <button
                 type="button"
                 className="button-primary"
-                onClick={() => persistTaskDraft(pendingTaskSave.draft, pendingTaskSave.taskId)}
+                disabled={planner.creatingTask || Boolean(pendingTaskSave.taskId && planner.pendingTaskIds.has(pendingTaskSave.taskId))}
+                onClick={() => void persistTaskDraft(pendingTaskSave.draft, pendingTaskSave.taskId, true)}
               >
                 Save anyway
               </button>
@@ -354,7 +465,10 @@ export default function App() {
         <Modal
           active={activeModal === 'task-reopen-warning'}
           title="Review schedule overlap"
-          onClose={() => setPendingReopenTask(null)}
+          onClose={() => {
+            setPendingReopenTask(null)
+            setPendingReopenDescriptions([])
+          }}
         >
           <div className="space-y-5 p-6 sm:p-7">
             <p className="text-slate-600">
@@ -363,27 +477,24 @@ export default function App() {
             <WarningList
               title="Schedule overlap"
               description="You can reopen it anyway or keep its current outcome."
-              items={findOverlappingTasks(
-                { ...pendingReopenTask, actualCompletedMinutes: 0 },
-                planner.state.tasks,
-                pendingReopenTask.id,
-              ).map((task) => `${task.title} — ${formatTaskTiming(task)}`)}
+              items={pendingReopenDescriptions}
             />
             <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
               <button
                 type="button"
                 className="button-secondary"
-                onClick={() => setPendingReopenTask(null)}
+                onClick={() => {
+                  setPendingReopenTask(null)
+                  setPendingReopenDescriptions([])
+                }}
               >
                 Keep outcome
               </button>
               <button
                 type="button"
                 className="button-primary"
-                onClick={() => {
-                  planner.reopenTask(pendingReopenTask.id)
-                  setPendingReopenTask(null)
-                }}
+                disabled={planner.pendingTaskIds.has(pendingReopenTask.id)}
+                onClick={() => void performTaskAction(() => reopenTask(pendingReopenTask, true))}
               >
                 Reopen anyway
               </button>
@@ -413,10 +524,11 @@ export default function App() {
               <button
                 type="button"
                 className="rounded-xl bg-red-600 px-4 py-2.5 font-bold text-white hover:bg-red-700"
-                onClick={() => {
-                  planner.markTaskIncomplete(pendingIncompleteTask.id)
+                disabled={planner.pendingTaskIds.has(pendingIncompleteTask.id)}
+                onClick={() => void performTaskAction(async () => {
+                  await planner.markTaskIncomplete(pendingIncompleteTask.id)
                   setPendingIncompleteTask(null)
-                }}
+                })}
               >
                 Mark incomplete
               </button>
@@ -457,7 +569,7 @@ export default function App() {
         >
           <div className="p-6 sm:p-7">
             <p className="text-slate-600">
-              “{deletingTask.title}” will be removed from this browser. Its completion event will
+              “{deletingTask.title}” will be removed from your account. Its completion event will
               be removed and the completion streak recalculated. Genuine planning activity
               history will remain.
             </p>
@@ -472,10 +584,11 @@ export default function App() {
               <button
                 type="button"
                 className="rounded-xl bg-red-600 px-4 py-2.5 font-bold text-white hover:bg-red-700"
-                onClick={() => {
-                  planner.deleteTask(deletingTask.id)
+                disabled={planner.pendingTaskIds.has(deletingTask.id)}
+                onClick={() => void performTaskAction(async () => {
+                  await planner.deleteTask(deletingTask.id)
                   setDeletingTask(null)
-                }}
+                })}
               >
                 Delete
               </button>
@@ -484,15 +597,42 @@ export default function App() {
         </Modal>
       )}
 
-      {reviewMessageVisible && (
+      {reviewConfirmationVisible && (
         <div
           className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full bg-slate-900 px-5 py-3 text-sm font-bold text-white shadow-xl lg:bottom-8"
           role="status"
         >
-          Plan reviewed — activity recorded.
+          Today’s plan is confirmed.
         </div>
       )}
     </div>
+  )
+}
+
+function PlannerLoadingState() {
+  return (
+    <main className="grid min-h-screen place-items-center bg-slate-50 px-4" aria-busy="true">
+      <div className="text-center" role="status">
+        <div className="mx-auto size-9 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
+        <p className="mt-4 text-sm font-bold text-slate-600">Loading your planner…</p>
+      </div>
+    </main>
+  )
+}
+
+function PlannerErrorState({ message, onRetry }: { message: string | null; onRetry: () => void }) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-slate-50 px-4 py-10">
+      <section className="max-w-md rounded-3xl bg-white p-8 text-center shadow-xl shadow-slate-200/60">
+        <h1 className="text-2xl font-black text-slate-950">Your planner could not be loaded</h1>
+        <p className="mt-3 text-sm leading-relaxed text-slate-600" role="alert">
+          {message ?? 'Please check your connection and try again.'}
+        </p>
+        <button type="button" className="button-primary mx-auto mt-6" onClick={onRetry}>
+          Try again
+        </button>
+      </section>
+    </main>
   )
 }
 
