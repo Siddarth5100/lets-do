@@ -1,6 +1,6 @@
 # Let's Do Frontend
 
-The Let's Do v1 frontend is a responsive, browser-based daily planner. It schedules tasks across calendar days, tracks partial and complete outcomes, calculates duration-weighted points, and stores planner data locally without requiring an account.
+The Let's Do frontend is a responsive React application backed by the authenticated FastAPI planner API. PostgreSQL is authoritative; browser storage is limited to per-tab navigation and an explicit migration path for older browser-only data.
 
 ## Technology
 
@@ -8,100 +8,132 @@ The Let's Do v1 frontend is a responsive, browser-based daily planner. It schedu
 - TypeScript 6 in strict mode
 - Vite 8
 - Tailwind CSS 4
-- Oxlint
-- Vitest
+- Supabase JavaScript client
+- Oxlint and Vitest
 
 ## Prerequisites
 
 - Node.js `^20.19.0` or `>=22.12.0`
 - npm
+- A running Let's Do backend
+- Supabase project URL and public publishable/anon key
 
-## Setup and Commands
+## Environment
 
-Run commands from `frontend/`:
+Copy the example file for local development:
+
+```bash
+cp .env.example .env.local
+```
+
+| Variable | Purpose |
+| --- | --- |
+| `VITE_SUPABASE_URL` | Public Supabase project URL used by Supabase Auth. |
+| `VITE_SUPABASE_ANON_KEY` | Public publishable/anon key. This is not a service-role secret. |
+| `VITE_API_BASE_URL` | API prefix. Use `/api` locally and the Render HTTPS URL ending in `/api` in production. |
+| `API_PROXY_TARGET` | Local Vite proxy target, normally `http://127.0.0.1:8000`. |
+
+Production builds reject missing or non-HTTPS Supabase/API URLs. Never place database credentials or a Supabase service-role key in frontend variables.
+
+## Setup and commands
+
+Run from `frontend/`:
 
 ```bash
 npm install
-npm run dev       # Start the Vite development server
-npm test          # Run unit tests once
-npm run lint      # Run Oxlint
-npm run build     # Type-check and create a production build
-npm run preview   # Preview the production build
+npm run dev
+npm test
+npm run lint
+npx tsc -b --pretty false
+npm run build
+npm run preview
 ```
 
-For an explicit strict TypeScript check without building:
+`npm run build` also performs a TypeScript project build before producing `dist/`.
 
-```bash
-./node_modules/.bin/tsc -p tsconfig.app.json --noEmit
-```
-
-## Source Architecture
+## Source architecture
 
 ```text
 src/
-├── components/   # Dashboard, calendar, review, settings, task, layout, and shared UI
+├── api/          # Authenticated HTTP client, response mapping, and planner API
+├── auth/         # Supabase session, login, signup, confirmation, and recovery UI
+├── components/   # Dashboard, calendar, review, settings, tasks, layout, and UI
 ├── data/         # Default categories, weekday slogans, and seven themes
-├── hooks/        # Current local date and planner state coordination
+├── hooks/        # Planner coordination and current-date rollover
+├── lib/          # Environment validation and Supabase client
 ├── types/        # Planner domain and navigation types
-├── utils/        # Scoring, scheduling, transitions, validation, dates, and storage
-├── App.tsx       # View, task-form, confirmation, and navigation orchestration
-├── index.css     # Tailwind import and shared component styles
-└── main.tsx      # React entry point
+├── utils/        # Scoring, scheduling, transitions, validation, time zones, and storage
+├── App.tsx       # Navigation, task actions, warnings, and modal orchestration
+└── main.tsx      # Auth, API, and application provider composition
 ```
 
-UI components delegate scoring, scheduling, validation, state transitions, and persistence to typed hooks and utility functions. Business-logic utilities have Vitest coverage.
+`AuthProvider` owns the Supabase session. `ApiProvider` converts that session into authenticated API requests. `usePlanner` loads account data from the server, applies successful mutations locally, refreshes activity history, and resets account-scoped state when the authenticated user changes.
 
-## Current Features
+The API client retries one `401` response after a shared token refresh, cancels stale requests during account changes, and signs out when authentication cannot be recovered.
 
-- Responsive Today dashboard with categorized active tasks, outcome sections, daily slogan, live analog clock, time remaining, points progress, and separate streaks
-- Calendar view for selecting dates and managing their tasks
-- Review Plan view with date selection, chronological tasks, overnight and multi-day intersections, allocated/free time totals, merged overlap calculations, and available ranges
-- Task creation and editing with custom categories, date, 24-hour start/end fields, automatically derived duration, importance, and stored reminder preferences
-- Duplicate-name and schedule-overlap warnings that require explicit confirmation
-- Rescheduling through the existing task form before the one-hour cutoff preceding the original start
-- Collapsible desktop navigation, mobile navigation, session-restored active view, and persisted Review Plan date
-- Seven automatic weekday themes with manual selection
-- Accessible dialogs, task progress indicators, form errors, and keyboard-available Partial guidance
+## Authentication
 
-## Scoring and Outcomes
+Implemented flows include:
 
-Maximum points are duration-weighted:
+- Email/password signup with confirmation email
+- Confirmation-pending state and confirmation resend
+- Email/password sign-in
+- Persisted session restoration and automatic token refresh
+- Generic forgot-password response to reduce account enumeration
+- `PASSWORD_RECOVERY` callback handling and secure password update form
+- Clear handling for successful, expired, and invalid callback links
+- Local logout with visible error reporting
+
+Confirmation and recovery redirects are based on `window.location.origin`. The matching production and local URLs must be allow-listed in Supabase.
+
+## Planner features
+
+- Today dashboard with categorized active tasks, Completed and Incomplete outcome sections, live clock, time remaining, points, and separate streaks
+- Calendar and Review Plan views with overnight/multi-day intersections, chronological allocation, merged overlaps, and free ranges
+- Task creation and editing with category, schedule, automatically calculated duration, importance, and reminder preferences
+- Duplicate-name and overlap warnings with explicit “save anyway” confirmation
+- Complete, 50% Partial toggle, Incomplete confirmation, and status correction
+- One-hour rescheduling cutoff enforced by both frontend and backend
+- Custom category creation and automatic creation of missing default categories
+- Seven weekday themes, manual theme selection, and collapsible desktop navigation
+- User-confirmed import of version 1 or 2 browser planner data
+
+## Scoring, outcomes, and streaks
 
 ```text
 maxPoints = max(1, plannedMinutes / 60)
 earnedPoints = maxPoints × min(actualCompletedMinutes, plannedMinutes) / plannedMinutes
 ```
 
-- **Pending:** zero completed minutes and zero points.
-- **Partial:** exactly 50% of planned minutes and points. It remains active until its scheduled end, then appears in the Completed section as “Partially Completed” without becoming fully completed.
-- **Completed:** 100% progress and full points. A qualifying completion event is recorded.
+- **Pending:** zero completed minutes and points.
+- **Partial:** exactly 50% of planned minutes and points. It remains active until its scheduled end, then is displayed in Completed as “Partially Completed” without becoming fully completed.
+- **Completed:** 100% progress and full points. Eligible completions create a UTC completion event.
 - **Incomplete:** zero progress and points after explicit confirmation.
-- Completed, incomplete, and elapsed partial tasks can be corrected back to Pending.
 
-Scheduled time passing never awards points or changes the stored outcome automatically.
+The activity streak records explicit planning actions or confirmation of today's review. The completion streak requires at least one fully completed, non-future task. Partial and Incomplete outcomes do not qualify. Reopening or deleting a completed task removes its task-linked completion event while preserving genuine activity history.
 
-## Streaks
+All V1 calendar decisions use `Asia/Kolkata`; scheduled wall-clock values are not shifted based on the device time zone.
 
-- **Activity streak:** records local calendar dates for explicit planning actions such as creating, editing, completing, or confirming today's review. Opening the application does not count.
-- **Completion streak:** records a timestamp when at least one eligible task is fully completed. Partial and incomplete outcomes do not qualify.
-- Future planned tasks do not create completion events. Deleting or reopening a completed task removes its associated completion event while preserving genuine planning activity history.
-- Missing days break streaks; the current day does not break a streak while still in progress.
+## Persistence
 
-Rest-day streak pausing is not implemented.
+- Tasks, categories, settings, activity dates, and completion events are loaded from and saved to PostgreSQL through the FastAPI API.
+- Task mutations include the current server `version`; stale writes receive a conflict and trigger a refresh.
+- `sessionStorage` key `lets-do.navigation.v1` stores the active view and Review Plan date for the current tab.
+- `localStorage` key `lets-do.planner.v1` is retained only as a legacy import source. Import preview and commit do not alter it.
+- The optional `lets-do.planner.owner.v1` value is used only to warn when legacy data appears associated with another account.
 
-## Storage
+## Production
 
-- Planner state uses versioned `localStorage` under `lets-do.planner.v1`. The loader preserves supported earlier data and migrates version 1 completion timestamps to the current event model.
-- Active view and Review Plan date use `sessionStorage` under `lets-do.navigation.v1`, so refreshes in the same tab restore navigation while a fresh tab starts on Today.
-- Invalid, malformed, blocked, or unwritable storage is handled with safe fallbacks; planner write failures display an in-app warning.
+The frontend is deployed to Cloudflare Pages at <https://lets-do.pages.dev>. The production API base URL is `https://lets-do-api.onrender.com/api`. Cloudflare copies security headers from `public/_headers` into the production output.
 
-All data remains in the current browser profile and is not synchronized or backed up remotely.
+See [../docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md) for build settings, environment values, Supabase redirect configuration, and smoke checks.
 
-## Known Limitations
+## Known limitations
 
-- No backend, database, authentication, accounts, or cross-device synchronization
-- Reminder settings are stored but notifications are not scheduled or delivered
-- No recurring routines, rest-day streak pauses, cancellation, or overdue automation
-- Navigation is state-based and does not provide shareable URLs or browser history routes
-- Daily planned time is calculated from scheduled tasks and does not restrict scheduling
-- Inter is loaded from Google Fonts, with the configured system font stack as fallback
+- India-only scheduling for V1
+- Reminder preferences without notification delivery
+- No recurring routines, rest-day streak pausing, cancellation, or overdue automation
+- No URL router or shareable view URLs
+- Category rename/delete is available in the API but not exposed in the UI
+- Backend requests can be delayed by Render free-tier cold starts
+- Production confirmation and recovery email delivery awaits a verified sending domain and production SMTP readiness
